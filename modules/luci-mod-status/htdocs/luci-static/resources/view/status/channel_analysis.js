@@ -21,6 +21,81 @@ return view.extend({
 		params: [ 'device' ],
 		expect: { }
 	}),
+	
+	callSurvey : rpc.declare({
+		object: 'iwinfo',
+		method: 'survey',
+		params: [ 'device' ],
+		expect: { results: [] }
+	}),
+	
+	//technically, in Luci parlance, 'radio0' is the device obtained via getWifiDevices, this gets the nested network 'wlan0'
+	callWifiNets : rpc.declare({ 
+		object: 'iwinfo',
+		method: 'devices',
+		expect: { devices: [] }
+	}),
+	
+	SetAtr: function(E,at,val) {E.setAttribute(at,val)},
+	ApndCh: function(E,ch) {E.appendChild(ch)},
+	NewE: function(type) {return document.createElementNS("http://www.w3.org/2000/svg",type)},
+	GetE: function(ID) {return document.getElementById(ID)},
+	DelE: function(E,ID) {E.removeChild(this.GetE(ID))},
+ 	DelECh: function(ID) {
+ 		var grp=this.GetE(ID);
+ 		if (grp != null) {
+ 			this.DelE(grp.parentNode,grp);
+ 		}
+ 	},
+ 	EmptyE: function(ID) {
+ 		var E = this.GetE(ID);
+ 		var ch = E.firstElementChild;
+ 		while (ch) {
+ 			ch.remove();
+ 			ch = E.firstElementChild;
+ 		}
+ 	},
+ 	SetE: function(E, arr) {
+ 		for(var i=0;i<arr.length;i++) {
+ 			this.SetAtr(E,arr[i][0],arr[i][1]);
+ 		}
+ 	},
+ 	AddCh: function(p,arr) {
+ 		for(var i=0;i<arr.length;i++) {
+ 			this.ApndCh(p,arr[i]);
+ 		}
+ 	},
+ 	
+ 	GenLineE: function(x1,x2,y1,y2,lID,strok) {
+ 		var aL=this.NewE("line");
+ 		this.SetE(aL,[ ['x1',x1],["x2",x2],["y1",y1],["y2",y2],["stroke",strok||""] ]);
+ 		aL.id=lID||"";
+ 		return aL;
+ 	},
+ 	GenRectE: function(fill,x_loc,y_loc,r_w,r_h,xrad,yrad) {
+ 		var aR=this.NewE("rect");
+ 		this.SetE(aR,[ ['fill',fill],["x",x_loc],["y",y_loc],["width",r_w],["height",r_h],["rx",xrad||0],["ry",yrad||0] ]);
+ 		return aR;
+ 	},
+ 	GenPathE: function(strok,stk_w,apath,fillC) {
+ 		var aP=this.NewE("path");
+ 		this.SetE(aP,[ ['stroke',strok],['stroke-width',stk_w],['d',apath] ]);
+ 		this.SetAtr(aP,"style",("fill:"+fillC||"none"));
+ 		return aP;
+ 	},
+ 	GenTextE: function(xloc,yloc,trans_vars,anchor,content,fsize,fstyle) {
+ 		var tE=this.NewE("text");
+ 		this.SetE(tE,[ ["x",xloc],["y",yloc],["transform",trans_vars],["text-anchor",anchor],["font-size",fsize||""],
+ 			["style",fstyle||""] ]);
+ 		tE.textContent=content;
+ 		return tE
+ 	},
+ 	GenClipE: function(cID) {
+ 		var cpE=this.NewE("clipPath");
+ 		this.SetE(cpE,[ ['overflow','hidden'],['clipPathUnits','userSpaceOnUse'] ]);
+ 		cpE.id=cID||"";
+ 		return cpE;
+ 	},
 
 	render_signal_badge: function(signalPercent, signalValue) {
 		var icon, title, value;
@@ -51,115 +126,232 @@ return view.extend({
 		]);
 	},
 
-	add_wifi_to_graph: function(chan_analysis, res, scanCache, channels, channel_width) {
-		var offset_tbl = chan_analysis.offset_tbl,
-			height = chan_analysis.graph.offsetHeight - 2,
-			step = chan_analysis.col_width,
-			height_diff = (height-(height-(res.signal*-4)));
+	add_wifi_to_graph: function(device, res, channels, channel_width) {
+		if (!this.active_tab)
+			return;
 
+		var chanArr = [],
+			chan, chanInc, xInc, xCenter, xWidth, signal, wPath,
+			wifiE, wifiFE, wifiTE, wifiGroup,
+			chan_analysis = this.radios[device].graph,
+			scanCache = this.radios[device].scanCache,
+			textCache = this.radios[device].textCache,
+			offset_tbl = chan_analysis.offset_tbl,
+			freq = chan_analysis.tab.getAttribute('frequency'),
+			band_data = this.radios[device].freqData[freq],
+			gStations = this.GetE(('Stations_'+freq)),
+			noiseCE = this.GetE(('noiseclipPath'+freq)),
+			sigMax = chan_analysis.offset_tbl[ '0dBm' ],		//5GHz = 0
+			sigMin = chan_analysis.offset_tbl[ '-120dBm' ],		//5GHz = 238.6
+ 			sigInc = (sigMin-sigMax)/120,						//5GHz = 1.98
+ 			oldSignal=-255;
+				
+		function tranS(ns) { return Math.abs(ns)*sigInc; }
+		
+		for (var f in band_data) {
+			chanArr.push(band_data[f].chn);
+		}
+		
+		chanInc = chanArr[1]-chanArr[0];
+		xInc = chan_analysis.col_width/chanInc;
+		
 		if (scanCache[res.bssid].color == null)
-			scanCache[res.bssid].color = random.derive_color(res.bssid);
-
-		if (scanCache[res.bssid].graph == null)
-			scanCache[res.bssid].graph = [];
-
-		channels.forEach(function(channel) {
-			var chan_offset = offset_tbl[channel],
-				points = [
-				(chan_offset-(step*channel_width))+','+height,
-				(chan_offset-(step*(channel_width-1)))+','+height_diff,
-				(chan_offset+(step*(channel_width-1)))+','+height_diff,
-				(chan_offset+(step*(channel_width)))+','+height
-			];
-
-			if (scanCache[res.bssid].graph[i] == null) {
-				var group = document.createElementNS('http://www.w3.org/2000/svg', 'g'),
-					line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline'),
-					text = document.createElementNS('http://www.w3.org/2000/svg', 'text'),
-					color = scanCache[res.bssid].color;
-
-				line.setAttribute('style', 'fill:'+color+'4f'+';stroke:'+color+';stroke-width:0.5');
-				text.setAttribute('style', 'fill:'+color+';font-size:9pt; font-family:sans-serif; text-shadow:1px 1px 1px #000');
-				text.appendChild(document.createTextNode(res.ssid || res.bssid));
-
-				group.appendChild(line)
-				group.appendChild(text)
-
-				chan_analysis.graph.firstElementChild.appendChild(group);
-				scanCache[res.bssid].graph[i] = { group : group, line : line, text : text };
-			}
-
-			scanCache[res.bssid].graph[i].text.setAttribute('x', chan_offset-step);
-			scanCache[res.bssid].graph[i].text.setAttribute('y', height_diff - 2);
-			scanCache[res.bssid].graph[i].line.setAttribute('points', points);
-			scanCache[res.bssid].graph[i].group.style.zIndex = res.signal*-1;
-			scanCache[res.bssid].graph[i].group.style.opacity = res.stale ? '0.5' : null;
-		})
-	},
-
-	create_channel_graph: function(chan_analysis, freq_tbl, freq) {
-		var is5GHz = freq == '5GHz',
-		    columns = is5GHz ? freq_tbl.length * 4 : freq_tbl.length + 3,
-		    chan_graph = chan_analysis.graph,
-		    G = chan_graph.firstElementChild,
-		    step = (chan_graph.offsetWidth - 2) / columns,
-		    curr_offset = step;
-
-		function createGraphHLine(graph, pos) {
-			var elem = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-			elem.setAttribute('x1', pos);
-			elem.setAttribute('y1', 0);
-			elem.setAttribute('x2', pos);
-			elem.setAttribute('y2', '100%');
-			elem.setAttribute('style', 'stroke:black;stroke-width:0.1');
-			graph.appendChild(elem);
+ 			scanCache[res.bssid].color = random.derive_color(res.bssid);
+ 		if (scanCache[res.bssid].graph == null)
+ 			scanCache[res.bssid].graph = [];
+ 			
+  		//first channel is always master, where the label should be.
+ 		//it might be safe to assume that if channel_width > 4, then there are special actions needed  vis-a-vis channels & xWidth
+ 			
+ 		if (channels.length > 1) {
+ 			chan = ((channels[0]+channels[1])/2);
+			xCenter = chan_analysis.offset_tbl[ chan] ;
+		} else {
+			chan = channels[0];
+			xCenter = chan_analysis.offset_tbl[ chan ];
 		}
-
-		function createGraphText(graph, pos, text) {
-			var elem = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-			elem.setAttribute('y', 15);
-			elem.setAttribute('style', 'fill:#eee; font-size:9pt; font-family:sans-serif; text-shadow:1px 1px 1px #000');
-			elem.setAttribute('x', pos + 5);
-			elem.appendChild(document.createTextNode(text));
-			graph.appendChild(elem);
+		
+		if (!textCache[chan].bssidA.includes(res.bssid)) {
+			textCache[chan].signalH = Math.max(textCache[chan].signalH,res.signal);
+			textCache[chan].bssidA.push(res.bssid);
 		}
-
-		chan_analysis.col_width = step;
-
-		createGraphHLine(G,curr_offset);
-		for (var i=0; i< freq_tbl.length;i++) {
-			var channel = freq_tbl[i]
-			chan_analysis.offset_tbl[channel] = curr_offset+step;
-
-			createGraphHLine(G,curr_offset+step);
-			createGraphText(G,curr_offset+step, channel);
-			curr_offset += step;
-
-			if (is5GHz && freq_tbl[i+1]) {
-				var next_channel = freq_tbl[i+1];
-				/* Check if we are transitioning to another 5Ghz band range */
-				if ((next_channel - channel) == 4) {
-					for (var j=1; j < 4; j++) {
-						chan_analysis.offset_tbl[channel+j] = curr_offset+step;
-						createGraphHLine(G,curr_offset+step);
-						curr_offset += step;
-					}
-				} else {
-					chan_analysis.offset_tbl[channel+1] = curr_offset+step;
-					createGraphHLine(G,curr_offset+step);
-					curr_offset += step;
-
-					chan_analysis.offset_tbl[next_channel-2] = curr_offset+step;
-					createGraphHLine(G,curr_offset+step);
-					curr_offset += step;
-
-					chan_analysis.offset_tbl[next_channel-1] = curr_offset+step;
-					createGraphHLine(G,curr_offset+step);
-					curr_offset += step;
+		
+		if (scanCache[res.bssid].graph[i] != null) {
+			var sigPath, thisGroup = this.GetE(res.bssid);
+			if (thisGroup) {
+				for (var c = 0; c < thisGroup.childNodes.length; c++) {
+					var cNode = thisGroup.childNodes[c];
+					if (cNode.nodeName === "path" && cNode.id.startsWith(res.bssid)) {
+        				oldSignal=parseInt(cNode.id.split("_")[1]);
+    				}
 				}
 			}
 		}
-		createGraphHLine(G,curr_offset+step);
+		if (scanCache[res.bssid].graph[i] != null && res.signal != oldSignal) {
+			this.EmptyE(res.bssid);
+		}
+		//BAFFLED: where is this i being set?? AND why is always == 2 (in both 2.4GHz & 5GHz)
+		if (scanCache[res.bssid].graph[i] == null || res.signal != oldSignal) {
+				//a single channel is a5MHz subcarrier; 20MHz is 4 of them; when channel_width is '2', it isn't actually 2 channels, its 2(0)mhz
+			xWidth = xInc * channel_width *2;
+				//not quite the 16.25/20 from https://www.cnrood.com/en/media/solutions/Wi-Fi_Overview_of_the_802.11_Physical_Layer.pdf
+			xWidth = xWidth * (17/20);
+			signal = tranS(res.signal);
+		
+			var xSpread = (sigMin-signal)/3;
+			var xBaseW = xWidth+xSpread;
+			var yTransP = sigMin-((sigMin-signal)*0.3); //30% rise from -120
+		
+			wPath=	"M"+(xCenter- ((xWidth+xSpread)*0.5))+","+sigMin+" ";
+			wPath+=	"C"+(xCenter- ((xWidth*0.5)+(xSpread*0.25)))+","+sigMin /* x1,y1 */
+						+","+(xCenter- (xWidth*0.5))+","+yTransP /* x2,y2 */
+						+","+(xCenter- (xWidth*0.5))+","+signal /* endpoint */
+						+" ";
+			wPath+=	"H "+(xCenter+ (xWidth*0.5))+" ";
+			wPath+=	"C"+(xCenter+ (xWidth*0.5))+","+yTransP /* x1,y1 */
+						+","+(xCenter+ ((xWidth*0.5)+(xSpread*0.25)))+","+sigMin /* x2,y2 */
+						+","+(xCenter+ ((xWidth*0.5)+(xSpread*0.5)))+","+sigMin /* endpoint */
+						+" ";
+			wifiE=this.GenPathE(scanCache[res.bssid].color,3,wPath,'none'); //signal line
+			wifiE.id=res.bssid+"_"+res.signal;
+			wifiFE=this.GenPathE('none',0,wPath+"z",scanCache[res.bssid].color); //signal fill
+			wifiFE.style.opacity=0.3;
+			if (noiseCE!=null) {
+				if (noiseCE.firstElementChild != null) {
+					this.SetAtr(wifiE,"clip-path","url(#noiseclipPath"+freq+")"); //applies the noise floor clipPath to the signal stroke
+				}
+			}
+			wifiGroup = this.GetE(res.bssid);
+			if (!wifiGroup) {
+				wifiGroup = this.NewE("g");
+				wifiGroup.id=res.bssid;
+			}
+			wifiTE = this.GenTextE(xCenter,signal-8,"","middle",res.ssid || res.bssid,"14px","fill:"+scanCache[res.bssid].color);
+			wifiTE.id=res.bssid+"_tE";
+			this.AddCh(wifiGroup,[wifiE,wifiFE,wifiTE]);
+			this.ApndCh(gStations,wifiGroup);
+
+			scanCache[res.bssid].graph[i] = { group : wifiGroup, line : wifiE, text : wifiTE };
+		}
+		scanCache[res.bssid].graph[i].group.style.zIndex = res.signal*-1;
+		scanCache[res.bssid].graph[i].group.style.opacity = res.stale ? '0.5' : null;
+	},
+
+	create_channel_graph: function(chan_analysis, freq) {
+		var tiers = [], chan_list = [], chart_section_loc = [],
+			channel_incr, max_chan_in_tier, viewbox, channel_width, tier_height,
+			t_start = 0, ch_gap = 0, sec_start = 0, chart_padding = 50, tier_padding = 28,
+			band_data = this.radios[chan_analysis.tab.getAttribute('data-tab')].freqData[freq],
+			textCache = this.radios[chan_analysis.tab.getAttribute('data-tab')].textCache,
+			svgChart = this.GetE('chartarea'+freq),
+			chart_height = parseInt(chan_analysis.graph.style.height.replace("px", "")),
+			chart_width = chan_analysis.tab.getBoundingClientRect().width, //940
+			plot_width = chart_width-chart_padding,
+ 			gYaxis = this.NewE("g"), gNoise = this.NewE("g"), gStations = this.NewE("g"),
+ 			gXaxis = this.NewE("symbol"), noiseCE=this.GenClipE("noiseclipPath"+freq);
+			
+		function TestEndChannel(ch,tier_arr) {
+ 			for (var t=0; t< tier_arr.length; t++) {
+ 				if (ch == tier_arr[t][tier_arr[t].length-1]) {
+ 					return 1;
+ 				}
+ 			}
+ 			return 0;
+ 		}
+		    
+		for (var frq in band_data) {
+			chan_list.push(band_data[frq].chn);
+			textCache[band_data[frq].chn] = { signalH: -255, bssidA: [] }; //opportunistic initial fill
+		}
+		channel_incr = chan_list[1]-chan_list[0];
+		
+		for (var i=0; i< chan_list.length-1; i++) {
+ 			if (chan_list[i+1] > chan_list[i]+channel_incr) {
+				tiers.push(chan_list.slice(t_start,(i+1)));
+				t_start=i+1;
+			}
+			if (i == 13 && tiers.length == 0) { //split up really long continuous bands (non-supported 6G/60G)
+				tiers.push(chan_list.slice(t_start,(i+1)));
+				t_start=i+1;
+			}
+			if (chan_list.length == (i+2)) {
+				tiers.push(chan_list.slice(t_start,chan_list.length));
+				max_chan_in_tier = chan_list.length-t_start;
+			}
+		}
+		//tiers =	//2.4G = [ [1,2,3,4,5,6,7,8,9,10,11] ];
+					//5G = [ [36,40,44,48,52,56,60,64],[100,104,108,112,116,120,124,128,132,136,140,144],[149,153,157,161,165] ]
+		
+		for (var i=0; i< tiers.length; i++) {
+			max_chan_in_tier = Math.max(max_chan_in_tier,tiers[i].length);
+		}
+		
+		if (chan_list.length < 14) { //increase padding @ start & end channels of 2.4GHz chart
+			ch_gap+=2;
+			max_chan_in_tier+=4;
+		}
+		channel_width = plot_width/(max_chan_in_tier+1); //padding
+		chan_analysis.col_width = channel_width;
+		tier_height = (chart_height-(tier_padding*tiers.length)) / tiers.length;
+		
+		gXaxis.id="Chart_XLabels"+freq;
+		gXaxis.setAttribute("width", (chan_list.length + ch_gap + tiers.length)*channel_width);
+						 
+		for (var i=0; i<chan_list.length; i++) {
+			var ch_transl;
+			var gchannel=this.NewE("g");
+			if ((chan_list[i+1] - chan_list[i] != channel_incr) & (i+1 != chan_list.length)) {
+				////when a break is detected, add a 1/2 width spacer at the end
+				ch_transl=channel_width*(i+1) + channel_width*(ch_gap++) + channel_width*0.5;
+				if (TestEndChannel(chan_list[i],tiers)) {
+					chart_section_loc.push([sec_start,ch_transl]);
+					sec_start = channel_width*0.5 + ch_transl;
+				}
+			} else {
+				ch_transl=channel_width*0.5 + channel_width*(i+1) + channel_width*ch_gap;
+				if (i+1 == chan_list.length) {
+					//more padding to ensure symbol width shows chart end
+					chart_section_loc.push([sec_start, (chan_list.length < 14 ? ch_transl+(2*channel_width) : ch_transl) ]);
+				}
+			}
+			chan_analysis.offset_tbl[ chan_list[i] ] = ch_transl;
+			if (freq == "5GHz") {
+				chan_analysis.offset_tbl[ (chan_list[i]-2) ] = ch_transl-(channel_width/2);
+				chan_analysis.offset_tbl[ (chan_list[i]+2) ] = ch_transl+(channel_width/2);
+				textCache[(chan_list[i]-2)] = { signalH: -255, bssidA: [] }; //opportunistic initial fill
+				textCache[(chan_list[i]+2)] = { signalH: -255, bssidA: [] }; //opportunistic initial fill
+			}
+			this.SetAtr(gchannel,"transform","translate("+ch_transl+",3)");
+		
+			this.ApndCh(gchannel,this.GenTextE(0,tier_height+16,"","middle",chan_list[i],"18px","fill:#999"));
+			this.ApndCh(gchannel,this.GenLineE(0,0,0,tier_height,"","#666"));
+			this.ApndCh(gXaxis,gchannel);
+		}
+		
+		for (var t=0; t< tiers.length; t++) {
+			var gTier=this.NewE("g"), XcloneU=this.NewE("use");
+			for (var j=0; j>=-120; j-=10) {
+				var y_height = (tier_height+tier_padding)*t + (tier_height/120)*Math.abs(j);
+				if (t==0) {
+					chan_analysis.offset_tbl[ j+"dBm" ] = y_height;
+				}
+				this.AddCh(gTier,[this.GenTextE(-20,y_height+5,"","end",j,"11px","fill:#999"),
+									this.GenLineE(-10,-16,y_height+2,y_height+2,"","#999")]);
+			}
+			this.ApndCh(gYaxis,gTier);
+			this.SetAtr(XcloneU,"transform","translate(-20,"+((tier_height+tier_padding)*t)+")");
+			XcloneU.setAttributeNS(null, "href", "#Chart_XLabels"+freq);
+			XcloneU.setAttribute("x", -(chart_section_loc[t][0]+25));
+			XcloneU.setAttribute("width", (chart_section_loc[t][1]+chart_section_loc[t][0]+75));
+			this.ApndCh(svgChart,XcloneU);
+		}
+		var hiddingRect = this.GenRectE("#111",-50,0,40,chart_height);
+		
+		gStations.id='Stations_'+freq;
+		gNoise.id='Noise_'+freq;
+		this.AddCh(gXaxis,[gStations,gNoise]);
+		this.ApndCh(gStations,noiseCE);
+		this.AddCh(svgChart,[hiddingRect,gYaxis,gXaxis]);
 
 		chan_analysis.tab.addEventListener('cbi-tab-active', L.bind(function(ev) {
 			this.active_tab = ev.detail.tab;
@@ -173,29 +365,36 @@ return view.extend({
 		var radioDev = this.radios[this.active_tab].dev,
 		    table = this.radios[this.active_tab].table,
 		    chan_analysis = this.radios[this.active_tab].graph,
-		    scanCache = this.radios[this.active_tab].scanCache;
+		    scanCache = this.radios[this.active_tab].scanCache,
+		    textCache = this.radios[this.active_tab].textCache;
+		    
+		for (var chan in textCache) {
+			textCache[chan] = { signalH: -255, bssidA: [] };
+		}
 
 		return Promise.all([
 			radioDev.getScanList(),
 			this.callInfo(radioDev.getName())
 		]).then(L.bind(function(data) {
 			var results = data[0],
-			    local_wifi = data[1];
-
-			var rows = [];
+			    local_wifi = data[1],
+			    rows = [];
 
 			for (var i = 0; i < results.length; i++) {
-				if (scanCache[results[i].bssid] == null)
+				if (scanCache[results[i].bssid] == null) {
 					scanCache[results[i].bssid] = {};
+					scanCache[results[i].bssid].color = random.derive_color(results[i].bssid);
+				}
 
 				scanCache[results[i].bssid].data = results[i];
 			}
 
-			if (scanCache[local_wifi.bssid] == null)
+			if (scanCache[local_wifi.bssid] == null) {
 				scanCache[local_wifi.bssid] = {};
+			}
 
 			scanCache[local_wifi.bssid].data = local_wifi;
-
+			
 			if (chan_analysis.offset_tbl[local_wifi.channel] != null && local_wifi.center_chan1) {
 				var center_channels = [local_wifi.center_chan1],
 				    chan_width_text = local_wifi.htmode.replace(/(V)*HT/,''),
@@ -208,8 +407,9 @@ return view.extend({
 
 				local_wifi.signal = -10;
 				local_wifi.ssid = 'Local Interface';
-
-				this.add_wifi_to_graph(chan_analysis, local_wifi, scanCache, center_channels, chan_width);
+				scanCache[local_wifi.bssid].color = random.derive_color(local_wifi.bssid);
+				
+				this.add_wifi_to_graph(this.active_tab, local_wifi, center_channels, chan_width);
 				rows.push([
 					this.render_signal_badge(q, local_wifi.signal),
 					[
@@ -252,6 +452,9 @@ return view.extend({
 					s = res.stale ? 'opacity:0.5' : '',
 					center_channels = [res.channel],
 					chan_width = 2;
+				var sigMax = chan_analysis.offset_tbl[ '0dBm' ],		//5GHz = 0
+					sigMin = chan_analysis.offset_tbl[ '-120dBm' ],		//5GHz = 238.6
+ 					sigInc = (sigMin-sigMax)/120;						//5GHz = 1.98
 
 				/* Skip WiFi not supported by the current band */
 				if (chan_analysis.offset_tbl[res.channel] == null)
@@ -288,7 +491,7 @@ return view.extend({
 					}
 				}
 
-				this.add_wifi_to_graph(chan_analysis, res, scanCache, center_channels, chan_width);
+				this.add_wifi_to_graph(this.active_tab, res, center_channels, chan_width);
 
 				rows.push([
 					E('span', { 'style': s }, this.render_signal_badge(q, res.signal)),
@@ -304,9 +507,110 @@ return view.extend({
 
 				res.stale = true;
 			}
-
+			function tranS(ns) { return Math.abs(ns)*sigInc; }
+			for (var chan in textCache) {
+				if (textCache[chan].bssidA.length) {
+					var bsALen = textCache[chan].bssidA.length,
+						abelH = tranS(textCache[chan].signalH),
+						aLblH = Math.max(abelH / bsALen, 16);
+						
+					if (bsALen == 1) continue; // that text is already in the perfect spot
+					for (var b=0; b < bsALen; b++) {
+						var celltE = this.GetE(textCache[chan].bssidA[b]+"_tE");
+						if (celltE) {
+							this.SetAtr(celltE,'y', abelH-(b*aLblH) );
+						}
+					}
+				}
+			}
+			
 			cbi_update_table(table, rows);
 		}, this))
+	},
+	
+	plotNoise: function(device, freq) {
+		var chanArr = [], noiseArr = [],
+			chanInc, xInc,
+			nX, nY, prevX, prevY, 
+			gNoise, gStations, noiseCE, noisePE, noiseFE, noisePath,
+			chan_analysis = this.radios[device].graph,
+			band_data = this.radios[device].freqData[freq],
+			sigMax = chan_analysis.offset_tbl[ '0dBm' ],		//5GHz = 0
+			sigMin = chan_analysis.offset_tbl[ '-120dBm' ],		//5GHz = 238.6
+ 			sigInc = (sigMin-sigMax)/120;						//5GHz = 1.98
+				
+		function tranNs(ns) { return Math.abs(ns)*sigInc; }
+		
+		for (var f in band_data) {
+			chanArr.push(band_data[f].chn);
+			noiseArr.push(band_data[f].ns);
+		}
+		chanInc = chanArr[1]-chanArr[0];
+		xInc = (chan_analysis.offset_tbl[ chanArr[1] ] - chan_analysis.offset_tbl[ chanArr[0] ])/chanInc;
+		
+		gNoise = this.GetE(('Noise_'+freq));
+		gStations = this.GetE(('Stations_'+freq));
+		noiseCE = this.GetE(('noiseclipPath'+freq));
+		this.EmptyE(("noiseclipPath"+freq));
+		this.EmptyE(('Noise_'+freq));
+		
+		for (var i=0; i<noiseArr.length; i++) {
+			var nVal=noiseArr[i];
+			if (!nVal) { nVal=-120; }
+			if (nVal < -120) { nVal=-120; }
+			if (nVal > 0) { nVal=0; }
+			nX = chan_analysis.offset_tbl[ chanArr[i] ];
+			nY = sigMax + tranNs(nVal);
+			if (i == 0) {
+				noisePath="M"+70+","+tranNs(nVal);
+				prevY=nY;
+			}
+			
+			if (nY == prevY) {
+				noisePath+=" H"+nX;
+			} else {
+				noisePath+=" c"+(nX-prevX)/2+","+"0" /* x1,y1; x is 1/2 way to endpoint, no y-axis change */
+					+","+(nX-prevX)/2+","+(nY-prevY) /* x2,y2 */
+					+","+(nX-prevX)+","+(nY-prevY) /* endx,endy */
+					+" ";
+			}
+			prevX=nX;
+			prevY=nY;
+		}
+		noisePath+="H"+(nX+(chan_analysis.offset_tbl[ chanArr[1] ] - chan_analysis.offset_tbl[ chanArr[0] ]));
+		
+		noisePE=this.GenPathE("#fff",3,noisePath,"transparent");
+		noiseFE=this.GenPathE("#fff",0,noisePath+"V"+tranNs(-120)+" H70","#444");
+		noiseFE.style.opacity=0.8;
+		
+		this.AddCh(gNoise,[noisePE,noiseFE]);		
+		this.ApndCh(noiseCE,this.GenPathE("#fff",0,noisePath+"V"+tranNs(0)+"H70V"+tranNs(-120)+"z","#fff"));
+		this.ApndCh(gStations,noiseCE);
+		
+	},
+	
+	callNetworkNoise: function(rdev, wnet) {
+		var radioDev = this.radios[rdev].dev,
+			chan_analysis = this.radios[rdev].graph,
+			freqData = this.radios[rdev].freqData;
+		
+		return Promise.all([
+			this.callSurvey(wnet).then(L.bind(function(wnet, data) {
+				var freq;
+				for (var achan in data) {
+					for (var band in freqData) {
+						var noise;
+						if (Object.keys(freqData[band]).length) {
+							freq = band;
+							noise=data[achan].noise;
+							noise >=0 ? noise-=255 : noise; //how likely is a noise of 140dBm???, thanks ubus thinking int8_t is boolean
+							freqData[band][data[achan].mhz].ns = noise;
+						}
+					}
+				}
+				this.plotNoise(rdev,freq);
+			}, this, wnet))
+		]);
 	},
 
 	radios : {},
@@ -318,14 +622,14 @@ return view.extend({
 
 			return E('div', {
 				'id': 'channel_graph',
-				'style': 'width:100%;height:400px;border:1px solid #000;background:#fff'
+				'style': 'width:100%;height:800px;margin-bottom:16px;background:#222'
 			}, E(response.text()));
 		});
 	},
 
 	load: function() {
 		return Promise.all([
-			this.loadSVG(L.resource('svg/channel_analysis.svg')),
+			this.loadSVG(L.resource('svg/channel_analysis_NEW2.svg')),
 			network.getWifiDevices().then(L.bind(function(data) {
 				var tasks = [], ret = [];
 
@@ -339,33 +643,42 @@ return view.extend({
 				}
 
 				return Promise.all(tasks).then(function() { return ret; })
+			}, this)),
+			this.callWifiNets().then(L.bind(function(wnets) {
+				var tasks = [], ret = [];
+				
+				for (var i = 0; i < wnets.length; i++) {
+					ret.push(wnets[i]);
+				}
+				return Promise.all(tasks).then(function() { return ret; })
 			}, this))
 		]);
 	},
 
 	render: function(data) {
 		var svg = data[0],
-		    wifiDevs = data[1];
+		    wifiDevs = data[1],
+		    wlans = data[2];
 
 		var v = E('div', {}, E('div'));
 
 		for (var ifname in wifiDevs) {
 			var freq_tbl = {
-				['2.4GHz'] : [],
-				['5GHz'] : [],
+				['2.4GHz'] : { },
+				['5GHz'] : { },
 			};
 
 			/* Split FrequencyList in Bands */
 			wifiDevs[ifname].freq.forEach(function(freq) {
 				if (freq.mhz >= 5000) {
-					freq_tbl['5GHz'].push(freq.channel);
+					freq_tbl['5GHz'][freq.mhz] = {chn:freq.channel, ns:-255};
 				} else {
-					freq_tbl['2.4GHz'].push(freq.channel);
+					freq_tbl['2.4GHz'][freq.mhz] = {chn:freq.channel, ns:-255};
 				}
 			});
-
+			
 			for (var freq in freq_tbl) {
-				if (freq_tbl[freq].length == 0)
+				if (!Object.keys(freq_tbl[freq]).length)
 					continue;
 
 				var csvg = svg.cloneNode(true),
@@ -379,7 +692,7 @@ return view.extend({
 						E('th', { 'class': 'th col-3 middle left hide-xs' }, _('BSSID'))
 					])
 				]),
-				tab = E('div', { 'data-tab': ifname+freq, 'data-tab-title': ifname+' ('+freq+')' },
+				tab = E('div', { 'data-tab': ifname+freq, 'data-tab-title': ifname+' ('+freq+')', 'frequency': freq },
 						[E('br'),csvg,E('br'),table,E('br')]),
 				graph_data = {
 					graph: csvg,
@@ -392,14 +705,49 @@ return view.extend({
 					dev: wifiDevs[ifname].dev,
 					graph: graph_data,
 					table: table,
-					scanCache: {}
+					freqData: freq_tbl,
+					scanCache: {},
+					textCache: {}
 				};
+				
+				//super manual traverse to get this minimal text up before setting up labels & waiting on scan results
+				var tE, svg_objs = csvg.firstElementChild;
+				svg_objs=svg_objs.firstElementChild;
+				svg_objs=svg_objs.nextElementSibling;
+				svg_objs=svg_objs.firstElementChild;
+				svg_objs=svg_objs.nextElementSibling; //<text> Element
+				tE=svg_objs;
+				svg_objs.innerHTML=freq.split("Hz")[0];
+				svg_objs=svg_objs.nextElementSibling; //<svg> Element
+				
+				if (freq == '2.4GHz') {
+					csvg.style.height = "400px";
+					tE.setAttribute('dy',".83em");
+				} else if (freq == '5GHz') {
+					tE.style.fontSize = "640px";
+					tE.setAttribute('dy',".95em");
+				}
+
+				svg_objs=svg_objs.firstElementChild; //<g> group Element that should have a unique ID
+				svg_objs.id=svg_objs.id+freq;
 
 				cbi_update_table(table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
 
 				v.firstElementChild.appendChild(tab)
 
-				requestAnimationFrame(L.bind(this.create_channel_graph, this, graph_data, freq_tbl[freq], freq));
+				requestAnimationFrame(L.bind(this.create_channel_graph, this, graph_data, freq));
+				
+				if (wifiDevs[ifname].dev._ubusdata.dev.interfaces) {
+					for (var wif in wifiDevs[ifname].dev._ubusdata.dev.interfaces) {
+						//this ifname (network) != the tab ifname (device)
+						var wnetIfname = wifiDevs[ifname].dev._ubusdata.dev.interfaces[wif].ifname;
+						
+						this.pollFn = L.bind(this.callNetworkNoise, this, (ifname+freq), wnetIfname);
+						
+						poll.add(this.pollFn, 30);
+						poll.start();
+					}
+				}
 			}
 		}
 
