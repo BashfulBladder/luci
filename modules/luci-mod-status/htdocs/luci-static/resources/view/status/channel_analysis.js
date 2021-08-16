@@ -29,13 +29,6 @@ return view.extend({
 		expect: { results: [] }
 	}),
 	
-	//technically, in Luci parlance, 'radio0' is the device obtained via getWifiDevices, this gets the nested network 'wlan0'
-	callWifiNets : rpc.declare({ 
-		object: 'iwinfo',
-		method: 'devices',
-		expect: { devices: [] }
-	}),
-	
 	SetAtr: function(E,at,val) {E.setAttribute(at,val)},
 	ApndCh: function(E,ch) {E.appendChild(ch)},
 	NewE: function(type) {return document.createElementNS("http://www.w3.org/2000/svg",type)},
@@ -642,22 +635,13 @@ return view.extend({
 				}
 
 				return Promise.all(tasks).then(function() { return ret; })
-			}, this)),
-			this.callWifiNets().then(L.bind(function(wnets) {
-				var tasks = [], ret = [];
-				
-				for (var i = 0; i < wnets.length; i++) {
-					ret.push(wnets[i]);
-				}
-				return Promise.all(tasks).then(function() { return ret; })
 			}, this))
 		]);
 	},
 
 	render: function(data) {
 		var svg = data[0],
-		    wifiDevs = data[1],
-		    wlans = data[2];
+		    wifiDevs = data[1];
 
 		var v = E('div', {}, E('div'));
 
