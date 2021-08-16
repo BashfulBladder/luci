@@ -711,23 +711,20 @@ return view.extend({
 				};
 				
 				//super manual traverse to get this minimal text up before setting up labels & waiting on scan results
-				var tE, svg_objs = csvg.firstElementChild;
+				var svg_objs = csvg.firstElementChild;
 				svg_objs=svg_objs.firstElementChild;
 				svg_objs=svg_objs.nextElementSibling;
 				svg_objs=svg_objs.firstElementChild;
 				svg_objs=svg_objs.nextElementSibling; //<text> Element
-				tE=svg_objs;
-				svg_objs.innerHTML=freq.split("Hz")[0];
-				svg_objs=svg_objs.nextElementSibling; //<svg> Element
-				
 				if (freq == '2.4GHz') {
 					csvg.style.height = "400px";
-					tE.setAttribute('dy',".83em");
+					svg_objs.setAttribute('dy',".83em");
 				} else if (freq == '5GHz') {
-					tE.style.fontSize = "640px";
-					tE.setAttribute('dy',".95em");
+					svg_objs.style.fontSize = "640px";
+					svg_objs.setAttribute('dy',".95em");
 				}
-
+				svg_objs.innerHTML=freq.split("Hz")[0];
+				svg_objs=svg_objs.nextElementSibling; //<svg> Element
 				svg_objs=svg_objs.firstElementChild; //<g> group Element that should have a unique ID
 				svg_objs.id=svg_objs.id+freq;
 
