@@ -40,13 +40,6 @@ return view.extend({
 	ApndCh: function(E,ch) {E.appendChild(ch)},
 	NewE: function(type) {return document.createElementNS("http://www.w3.org/2000/svg",type)},
 	GetE: function(ID) {return document.getElementById(ID)},
-	DelE: function(E,ID) {E.removeChild(this.GetE(ID))},
- 	DelECh: function(ID) {
- 		var grp=this.GetE(ID);
- 		if (grp != null) {
- 			this.DelE(grp.parentNode,grp);
- 		}
- 	},
  	EmptyE: function(ID) {
  		var E = this.GetE(ID);
  		var ch = E.firstElementChild;
