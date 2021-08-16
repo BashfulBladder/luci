@@ -257,7 +257,7 @@ return view.extend({
 			chart_width = chan_analysis.tab.getBoundingClientRect().width, //940
 			plot_width = chart_width-chart_padding,
  			gYaxis = this.NewE("g"), gNoise = this.NewE("g"), gStations = this.NewE("g"),
- 			gXaxis = this.NewE("symbol"), noiseCE=this.GenClipE("noiseclipPath"+freq);
+ 			gXaxis = this.NewE("symbol");
 			
 		function TestEndChannel(ch,tier_arr) {
  			for (var t=0; t< tier_arr.length; t++) {
@@ -354,13 +354,15 @@ return view.extend({
 			XcloneU.setAttribute("width", (chart_section_loc[t][1]+chart_section_loc[t][0]+75));
 			this.ApndCh(svgChart,XcloneU);
 		}
-		var hiddingRect = this.GenRectE("#111",-50,0,40,chart_height);
 		
 		gStations.id='Stations_'+freq;
 		gNoise.id='Noise_'+freq;
 		this.AddCh(gXaxis,[gStations,gNoise]);
-		this.ApndCh(gStations,noiseCE);
-		this.AddCh(svgChart,[hiddingRect,gYaxis,gXaxis]);
+		this.ApndCh(this.GetE('Defs_'+freq), this.GenClipE("noiseclipPath"+freq));
+		this.ApndCh(this.GetE('Defs_'+freq), this.GenClipE("bottom_dwellers_"+freq));
+		this.ApndCh(this.GetE('bottom_dwellers_'+freq), this.GenRectE("#111",-50,0, gXaxis.getAttribute("width")+200 ,tier_height-1) );
+		this.SetAtr(gStations,"clip-path","url(#bottom_dwellers_"+freq+")");
+		this.AddCh(svgChart,[this.GenRectE("#111",-50,0,40,chart_height),gYaxis,gXaxis]); //[hiding rectangle, X labels, Y labels]
 		
 		chan_analysis.sigInc = ( chan_analysis.offset_tbl[ '-120dBm' ] - chan_analysis.offset_tbl[ '0dBm' ] )/120;
 
@@ -577,8 +579,6 @@ return view.extend({
 		
 		this.AddCh(gNoise,[noisePE,noiseFE]);		
 		this.ApndCh(noiseCE,this.GenPathE("#fff",0,noisePath+"V"+tranNs(0)+"H0V"+tranNs(-120)+"z","#fff"));
-		this.ApndCh(gStations,noiseCE);
-		
 	},
 	
 	callNetworkNoise: function(rdev, wnet) {
@@ -696,10 +696,10 @@ return view.extend({
 				
 				//super manual traverse to get this minimal text up before setting up labels & waiting on scan results
 				var svg_objs = csvg.firstElementChild;
-				svg_objs=svg_objs.firstElementChild;
-				svg_objs=svg_objs.nextElementSibling;
-				svg_objs=svg_objs.firstElementChild;
-				svg_objs=svg_objs.nextElementSibling; //<text> Element
+				svg_objs=svg_objs.firstElementChild;  //<svg> graph
+				svg_objs=svg_objs.firstElementChild;  //<defs> element
+				svg_objs.id="Defs_"+freq;
+				svg_objs=svg_objs.nextElementSibling; //<text> element
 				if (freq == '2.4GHz') {
 					csvg.style.height = "400px";
 					svg_objs.setAttribute('dy',".83em");
@@ -708,8 +708,8 @@ return view.extend({
 					svg_objs.setAttribute('dy',".95em");
 				}
 				svg_objs.innerHTML=freq.split("Hz")[0];
-				svg_objs=svg_objs.nextElementSibling; //<svg> Element
-				svg_objs=svg_objs.firstElementChild; //<g> group Element that should have a unique ID
+				svg_objs=svg_objs.nextElementSibling; //<svg> element
+				svg_objs=svg_objs.firstElementChild; //<g> group element that should have a unique ID
 				svg_objs.id=svg_objs.id+freq;
 
 				cbi_update_table(table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
