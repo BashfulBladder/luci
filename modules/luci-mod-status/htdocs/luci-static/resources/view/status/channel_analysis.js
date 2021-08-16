@@ -136,7 +136,7 @@ return view.extend({
 			noiseCE = this.GetE(('noiseclipPath'+freq)),
 			sigMax = chan_analysis.offset_tbl[ '0dBm' ],		//5GHz = 0
 			sigMin = chan_analysis.offset_tbl[ '-120dBm' ],		//5GHz = 238.6
- 			sigInc = (sigMin-sigMax)/120,						//5GHz = 1.98
+ 			sigInc = chan_analysis.sigInc,						//5GHz = 1.98
  			oldSignal=-255;
 				
 		function tranS(ns) { return Math.abs(ns)*sigInc; }
@@ -189,7 +189,7 @@ return view.extend({
 			xWidth = xInc * channel_width *2;
 				//not quite the 16.25/20 from https://www.cnrood.com/en/media/solutions/Wi-Fi_Overview_of_the_802.11_Physical_Layer.pdf
 			xWidth = xWidth * (17/20);
-			signal = tranS(res.signal);
+			signal = sigMax + tranS(res.signal);
 		
 			var xSpread = (sigMin-signal)/3;
 			var xBaseW = xWidth+xSpread;
@@ -228,6 +228,29 @@ return view.extend({
 		}
 		scanCache[res.bssid].graph[i].group.style.zIndex = res.signal*-1;
 		scanCache[res.bssid].graph[i].group.style.opacity = res.stale ? '0.5' : null;
+	},
+	
+	spreadTextLabels: function() {
+		var textCache = this.radios[this.active_tab].textCache,
+			sigInc = this.radios[this.active_tab].graph.sigInc;						//5GHz = 1.98
+
+		function tranS(ns) { return Math.abs(ns)*sigInc; }
+		
+		for (var chan in textCache) {
+			if (textCache[chan].bssidA.length) {
+				var bsALen = textCache[chan].bssidA.length,
+					abelH = tranS(textCache[chan].signalH),
+					aLblH = Math.max(abelH / bsALen, 16);
+					aLblH = Math.min(abelH / bsALen, 16);
+				if (bsALen == 1) continue; // that text is already in the perfect spot
+				for (var b=0; b < bsALen; b++) {
+					var celltE = this.GetE(textCache[chan].bssidA[b]+"_tE");
+					if (celltE) {
+						this.SetAtr(celltE,'y', abelH-(b*aLblH) );
+					}
+				}
+			}
+		}
 	},
 
 	create_channel_graph: function(chan_analysis, freq) {
@@ -345,6 +368,8 @@ return view.extend({
 		this.AddCh(gXaxis,[gStations,gNoise]);
 		this.ApndCh(gStations,noiseCE);
 		this.AddCh(svgChart,[hiddingRect,gYaxis,gXaxis]);
+		
+		chan_analysis.sigInc = ( chan_analysis.offset_tbl[ '-120dBm' ] - chan_analysis.offset_tbl[ '0dBm' ] )/120;
 
 		chan_analysis.tab.addEventListener('cbi-tab-active', L.bind(function(ev) {
 			this.active_tab = ev.detail.tab;
@@ -445,9 +470,6 @@ return view.extend({
 					s = res.stale ? 'opacity:0.5' : '',
 					center_channels = [res.channel],
 					chan_width = 2;
-				var sigMax = chan_analysis.offset_tbl[ '0dBm' ],		//5GHz = 0
-					sigMin = chan_analysis.offset_tbl[ '-120dBm' ],		//5GHz = 238.6
- 					sigInc = (sigMin-sigMax)/120;						//5GHz = 1.98
 
 				/* Skip WiFi not supported by the current band */
 				if (chan_analysis.offset_tbl[res.channel] == null)
@@ -500,23 +522,7 @@ return view.extend({
 
 				res.stale = true;
 			}
-			function tranS(ns) { return Math.abs(ns)*sigInc; }
-			for (var chan in textCache) {
-				if (textCache[chan].bssidA.length) {
-					var bsALen = textCache[chan].bssidA.length,
-						abelH = tranS(textCache[chan].signalH),
-						aLblH = Math.max(abelH / bsALen, 16);
-						
-					if (bsALen == 1) continue; // that text is already in the perfect spot
-					for (var b=0; b < bsALen; b++) {
-						var celltE = this.GetE(textCache[chan].bssidA[b]+"_tE");
-						if (celltE) {
-							this.SetAtr(celltE,'y', abelH-(b*aLblH) );
-						}
-					}
-				}
-			}
-			
+			this.spreadTextLabels();
 			cbi_update_table(table, rows);
 		}, this))
 	},
@@ -530,7 +536,7 @@ return view.extend({
 			band_data = this.radios[device].freqData[freq],
 			sigMax = chan_analysis.offset_tbl[ '0dBm' ],		//5GHz = 0
 			sigMin = chan_analysis.offset_tbl[ '-120dBm' ],		//5GHz = 238.6
- 			sigInc = (sigMin-sigMax)/120;						//5GHz = 1.98
+ 			sigInc = chan_analysis.sigInc;						//5GHz = 1.98
 				
 		function tranNs(ns) { return Math.abs(ns)*sigInc; }
 		
@@ -692,6 +698,7 @@ return view.extend({
 					offset_tbl: {},
 					col_width: 0,
 					tab: tab,
+					sigInc: 0
 				};
 
 				this.radios[ifname+freq] = {
