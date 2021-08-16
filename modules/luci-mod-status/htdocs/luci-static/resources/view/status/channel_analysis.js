@@ -562,7 +562,7 @@ return view.extend({
 			nX = chan_analysis.offset_tbl[ chanArr[i] ];
 			nY = sigMax + tranNs(nVal);
 			if (i == 0) {
-				noisePath="M"+70+","+tranNs(nVal);
+				noisePath="M"+0+","+tranNs(nVal);
 				prevY=nY;
 			}
 			
@@ -580,11 +580,11 @@ return view.extend({
 		noisePath+="H"+(nX+(chan_analysis.offset_tbl[ chanArr[1] ] - chan_analysis.offset_tbl[ chanArr[0] ]));
 		
 		noisePE=this.GenPathE("#fff",3,noisePath,"transparent");
-		noiseFE=this.GenPathE("#fff",0,noisePath+"V"+tranNs(-120)+" H70","#444");
+		noiseFE=this.GenPathE("#fff",0,noisePath+"V"+tranNs(-120)+" H0","#444");
 		noiseFE.style.opacity=0.8;
 		
 		this.AddCh(gNoise,[noisePE,noiseFE]);		
-		this.ApndCh(noiseCE,this.GenPathE("#fff",0,noisePath+"V"+tranNs(0)+"H70V"+tranNs(-120)+"z","#fff"));
+		this.ApndCh(noiseCE,this.GenPathE("#fff",0,noisePath+"V"+tranNs(0)+"H0V"+tranNs(-120)+"z","#fff"));
 		this.ApndCh(gStations,noiseCE);
 		
 	},
