@@ -360,7 +360,7 @@ return view.extend({
 		this.AddCh(gXaxis,[gStations,gNoise]);
 		this.ApndCh(this.GetE('Defs_'+freq), this.GenClipE("noiseclipPath"+freq));
 		this.ApndCh(this.GetE('Defs_'+freq), this.GenClipE("bottom_dwellers_"+freq));
-		this.ApndCh(this.GetE('bottom_dwellers_'+freq), this.GenRectE("#111",-50,0, gXaxis.getAttribute("width")+200 ,tier_height-1) );
+		this.ApndCh(this.GetE('bottom_dwellers_'+freq), this.GenRectE("#111",-50,0, parseInt(gXaxis.getAttribute("width"))+200 ,tier_height-1) );
 		this.SetAtr(gStations,"clip-path","url(#bottom_dwellers_"+freq+")");
 		this.AddCh(svgChart,[this.GenRectE("#111",-50,0,40,chart_height),gYaxis,gXaxis]); //[hiding rectangle, X labels, Y labels]
 		
