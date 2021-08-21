@@ -248,14 +248,13 @@ return view.extend({
 
 	create_channel_graph: function(chan_analysis, freq) {
 		var tiers = [], chan_list = [], chart_section_loc = [],
-			channel_incr, max_chan_in_tier, viewbox, channel_width, tier_height,
+			channel_incr, max_chan_in_tier, channel_width, tier_height,
 			t_start = 0, ch_gap = 0, sec_start = 0, chart_padding = 50, tier_padding = 28,
 			band_data = this.radios[chan_analysis.tab.getAttribute('data-tab')].freqData[freq],
 			textCache = this.radios[chan_analysis.tab.getAttribute('data-tab')].textCache,
 			svgChart = this.GetE('chartarea'+freq),
 			chart_height = parseInt(chan_analysis.graph.style.height.replace("px", "")),
 			chart_width = chan_analysis.tab.getBoundingClientRect().width, //940
-			plot_width = chart_width-chart_padding,
  			gYaxis = this.NewE("g"), gNoise = this.NewE("g"), gStations = this.NewE("g"),
  			gXaxis = this.NewE("symbol");
 			
@@ -299,7 +298,7 @@ return view.extend({
 			ch_gap+=2;
 			max_chan_in_tier+=4;
 		}
-		channel_width = plot_width/(max_chan_in_tier+1); //padding
+		channel_width = (chart_width - chart_padding)/(max_chan_in_tier+1); //padding
 		chan_analysis.col_width = channel_width;
 		tier_height = (chart_height-(tier_padding*tiers.length)) / tiers.length;
 		
