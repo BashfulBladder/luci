@@ -669,7 +669,7 @@ return view.extend({
 						E('th', { 'class': 'th col-2 middle center' }, _('Signal')),
 						E('th', { 'class': 'th col-4 middle left' }, _('SSID')),
 						E('th', { 'class': 'th col-2 middle center hide-xs' }, _('Channel')),
-						E('th', { 'class': 'th col-3 middle left' }, _('Channel Width')),
+						E('th', { 'class': 'th col-2 middle center' }, _('Channel Width')),
 						E('th', { 'class': 'th col-2 middle left hide-xs' }, _('Mode')),
 						E('th', { 'class': 'th col-3 middle left hide-xs' }, _('BSSID'))
 					])
