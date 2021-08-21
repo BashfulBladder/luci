@@ -44,12 +44,11 @@
 	},
 
 	"luci-mod-status-routes": {
-		"description": "Grant access to routing status",
+		"description": "Grant access to the system route status",
 		"read": {
 			"file": {
 				"/sbin/ip -[46] neigh show": [ "exec" ],
-				"/sbin/ip -[46] route show table all": [ "exec" ],
-				"/sbin/ip -[46] rule show": [ "exec" ]
+				"/sbin/ip -[46] route show table all": [ "exec" ]
 			},
 			"ubus": {
 				"file": [ "exec" ]
@@ -58,10 +57,27 @@
 	},
 
 	"luci-mod-status-channel_analysis": {
-		"description": "Grant access to wireless channel status",
+		"description": "Grant access to the system route status",
+		"write": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/tmp/oui.sh": ["write"],
+				"/tmp/oui.txt": ["write"],
+				"/etc/OUI.json": ["write"]
+			}
+		},
 		"read": {
+			"cgi-io": [ "download", "read", "exec" ],
 			"ubus": {
-				"iwinfo": [ "info", "freqlist", "survey" ]
+				"iwinfo": [ "info", "freqlist", "survey" ],
+				"file": [ "stat", "read" ]
+			},
+			"file": {
+				"/usr/bin/wget": [ "exec" ],
+				"/usr/bin/awk": [ "exec" ],
+				"/tmp/oui.sh": [ "exec" ],
+				"/tmp/oui.txt": ["read"],
+				"/etc/OUI.json": ["read", "download"]
 			}
 		}
 	},
@@ -105,9 +121,6 @@
 				"file": [ "list", "read" ],
 				"system": [ "board", "info" ]
 			}
-		},
-		"write": {
-			"uci": [ "dhcp" ]
 		}
 	},
 

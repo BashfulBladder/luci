@@ -5,7 +5,19 @@
 'require network';
 'require ui';
 'require rpc';
+'require fs';
 'require tools.prng as random';
+
+/* ***************************************************** */
+//	TODO
+//
+//	pare luci-mod-status.json ACL list
+//  figure out how to display vendor (hover over table bssid, setInterval on bssid, new column, name(vendor)?)
+//  catch potential issues in OUIdb generation
+//  revisit the whole button.disable morass
+/* ***************************************************** */
+
+var OUIdb = {};
 
 return view.extend({
 	callFrequencyList : rpc.declare({
@@ -82,6 +94,86 @@ return view.extend({
  		cpE.id=cID||"";
  		return cpE;
  	},
+ 	
+ 	genOUIvar: function(throw_err) {
+ 		fs.stat("/etc/OUI.json").then(function(fstats) {
+ 			if (fstats.size > 999000) {
+ 				fs.read_direct(fstats.path, 'text').then(function(response) { //now it becomes a JSON
+ 					OUIdb=JSON.parse(response);
+ 					//console.log(OUIdb["2091D9"]); //I'M SPA (more like I'M GOOD, thx)
+ 				});
+ 			}
+ 		}).catch(function(throw_err, fs_err) {
+ 			if (throw_err)
+				throw new Error(_('Unable to find /etc/OUI.json: %s').format(fs_err.message));
+		});
+ 	},
+ 	
+ 	//couldn't figure out redirects with fs.exec & fs_exec direct
+ 	//traditional "awk '{print $1}' in.txt > out.txt" & "echo 'hi' > /tmp/out.txt" don't work 
+ 	//so instead of packaging a separate shell script, build one at runtime instead
+ 	processOUI: function() {
+		var awk_scr="#!/bin/sh"+"\n";
+		
+		awk_scr+="awk" + " ";
+		awk_scr+='\'vdr=""; {if(length($1) == 6 && !/^\\t/) {gsub(/     \\(base 16\\)/,"");gsub(/\\//,"\\\\\\/"); for(i=2;i<=NF;++i) {if(i==2) {vdr= vdr \$i}else{vdr= vdr " " \$i}}; gsub("\\r","",vdr); printf("%s\\"%s\\":\\"%s\\"",cnt++==0?"{ ":",",$1,vdr)}} END {printf(" }")}\'' + ' ';		
+		
+		awk_scr+="/tmp/oui.txt > /etc/OUI.json"+"\n";
+		
+		return fs.write("/tmp/oui.sh", awk_scr, 511) /* 0777 */
+			.then(function(response) {
+				if (response)
+					throw new Error(response.stdout);
+				fs.exec("/tmp/oui.sh").then(function(response) {
+					if (response.code == 0) {
+						this.genOUIvar(true);
+					} else {
+						throw new Error(response.stdout);
+					}
+			}.bind(this));
+		}.bind(this));
+	},
+ 	
+ 	wgetOUI: function() {
+		return fs.exec('/usr/bin/wget', ['http://standards-oui.ieee.org/oui/oui.txt', '-O', '/tmp/oui.txt']).then(function(response) {
+			if (!response.ok)
+				throw new Error(response.stdout);
+
+			this.processOUI();
+		});
+	},
+	
+
+ 	//couldn't figure out a way to disable the button (setting .disabled=true in a myriad of ways never reflected the change; might be readonly)
+ 	downloadOUIdb: function(ev) {
+		this.wgetOUI();
+		this.processOUI();
+		
+		var btn = this.GetE("OUIbutton");
+		btn.parentNode.removeChild(btn);
+	},
+	
+	fuzzyOUIsearch: function(bssid) { //"2091D9"
+		var newID,
+			results = [],
+			hexID_A = bssid.replace(/:/g,'').split(''),
+			hex = '0123456789ABCDEF'.split('');
+		//console.log(hexID_A);
+		for (var i=0; i<6; i++) {
+			newID="";
+			for (var h=0; h<hex.length; h++) {
+				for (var b=0; b<6; b++) {
+					newID+= (i==b ? hex[h] : hexID_A[b]);
+				}
+				//console.log(newID);
+				if (OUIdb[newID])
+					if (!results.includes(newID))
+						results.push(newID);
+				newID="";
+			}
+		}
+		return results;
+	},
 
 	render_signal_badge: function(signalPercent, signalValue) {
 		var icon, title, value;
@@ -117,7 +209,7 @@ return view.extend({
 			return;
 
 		var chanArr = [],
-			chan, chanInc, xInc, xCenter, xWidth, signal, wPath,
+			chan, chanInc, xInc, xCenter, xWidth, signal, wPath, bOUI,
 			wifiE, wifiFE, wifiTE, wifiGroup,
 			chan_analysis = this.radios[device].graph,
 			scanCache = this.radios[device].scanCache,
@@ -146,8 +238,19 @@ return view.extend({
  		if (scanCache[res.bssid].graph == null)
  			scanCache[res.bssid].graph = [];
  			
-  		//first channel is always master, where the label should be.
- 		//it might be safe to assume that if channel_width > 4, then there are special actions needed  vis-a-vis channels & xWidth
+ 		if (OUIdb) {
+ 			if (scanCache[res.bssid].vendor == null) {
+ 				bOUI = res.bssid.replace(/:/g,'').slice(0,6);
+ 				scanCache[res.bssid].vendor = OUIdb[bOUI] ? OUIdb[bOUI] : 'unknown';
+ 				scanCache[res.bssid].fuzzyOUIs = OUIdb[bOUI] ? [] : this.fuzzyOUIsearch(res.bssid);
+ 				
+ 				console.log("Station : " + (res.ssid != null ? res.ssid : 'hidden') );
+ 				console.log("BSSID : " + res.bssid + " -> " +res.bssid.replace(/:/g,''));
+ 				console.log("Vendor : " + scanCache[res.bssid].vendor );
+ 				console.log("Fuzzy OUIs : " + scanCache[res.bssid].fuzzyOUIs );
+ 				console.log("---------------------------------------------------------------" );
+ 			}
+ 		}
  			
  		if (channels.length > 1) {
  			chan = ((channels[0]+channels[1])/2);
@@ -634,7 +737,8 @@ return view.extend({
 				}
 
 				return Promise.all(tasks).then(function() { return ret; })
-			}, this))
+			}, this)),
+			this.genOUIvar(false)
 		]);
 	},
 
@@ -729,6 +833,16 @@ return view.extend({
 					}
 				}
 			}
+		}
+		
+		if (!Object.keys(OUIdb).length) {
+			v.appendChild(E('hr'));
+			v.appendChild(E('button', {
+				'class': 'cbi-button cbi-button-action', //'class': 'cbi-button cbi-button-action important',
+				'id': 'OUIbutton',
+				'disabled': null,
+				'click': ui.createHandlerFn(this, 'downloadOUIdb')
+			}, _('Download the OUI db.')));
 		}
 
 		ui.tabs.initTabGroup(v.firstElementChild.childNodes);
