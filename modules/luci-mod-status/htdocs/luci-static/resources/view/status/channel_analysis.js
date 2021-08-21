@@ -33,14 +33,6 @@ return view.extend({
 	ApndCh: function(E,ch) {E.appendChild(ch)},
 	NewE: function(type) {return document.createElementNS("http://www.w3.org/2000/svg",type)},
 	GetE: function(ID) {return document.getElementById(ID)},
- 	EmptyE: function(ID) {
- 		var E = this.GetE(ID);
- 		var ch = E.firstElementChild;
- 		while (ch) {
- 			ch.remove();
- 			ch = E.firstElementChild;
- 		}
- 	},
  	SetE: function(E, arr) {
  		for(var i=0;i<arr.length;i++) {
  			this.SetAtr(E,arr[i][0],arr[i][1]);
@@ -49,6 +41,14 @@ return view.extend({
  	AddCh: function(p,arr) {
  		for(var i=0;i<arr.length;i++) {
  			this.ApndCh(p,arr[i]);
+ 		}
+ 	},
+ 	EmptyE: function(ID) {
+ 		var E = this.GetE(ID);
+ 		var ch = E.firstElementChild;
+ 		while (ch) {
+ 			ch.remove();
+ 			ch = E.firstElementChild;
  		}
  	},
  	
