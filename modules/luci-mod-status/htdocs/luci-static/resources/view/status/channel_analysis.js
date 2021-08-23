@@ -70,11 +70,6 @@ return view.extend({
  		aL.id=lID||"";
  		return aL;
  	},
- 	GenRectE: function(fill,x_loc,y_loc,r_w,r_h,xrad,yrad) {
- 		var aR=this.NewE("rect");
- 		this.SetE(aR,[ ['fill',fill],["x",x_loc],["y",y_loc],["width",r_w],["height",r_h],["rx",xrad||0],["ry",yrad||0] ]);
- 		return aR;
- 	},
  	GenPathE: function(strok,stk_w,apath,fillC) {
  		var aP=this.NewE("path");
  		this.SetE(aP,[ ['stroke',strok],['stroke-width',stk_w],['d',apath] ]);
@@ -87,12 +82,6 @@ return view.extend({
  			["style",fstyle||""] ]);
  		tE.textContent=content;
  		return tE
- 	},
- 	GenClipE: function(cID) {
- 		var cpE=this.NewE("clipPath");
- 		this.SetE(cpE,[ ['overflow','hidden'],['clipPathUnits','userSpaceOnUse'] ]);
- 		cpE.id=cID||"";
- 		return cpE;
  	},
  	
  	genOUIvar: function(throw_err) {
@@ -472,13 +461,18 @@ return view.extend({
 		}
 		
 		gStations.id='Stations_'+freq;
-		gNoise.id='Noise_'+freq;
-		this.AddCh(gXaxis,[gStations,gNoise]);
-		this.ApndCh(this.GetE('Defs_'+freq), this.GenClipE("noiseclipPath"+freq));
-		this.ApndCh(this.GetE('Defs_'+freq), this.GenClipE("bottom_dwellers_"+freq));
-		this.ApndCh(this.GetE('bottom_dwellers_'+freq), this.GenRectE("#111",-50,0, parseInt(gXaxis.getAttribute("width"))+200 ,tier_height-1) );
 		this.SetAtr(gStations,"clip-path","url(#bottom_dwellers_"+freq+")");
-		this.AddCh(svgChart,[this.GenRectE("#111",-50,0,40,chart_height),gYaxis,gXaxis]); //[hiding rectangle, X labels, Y labels]
+		gNoise.id='Noise_'+freq;
+		
+		L.dom.append(gXaxis, [gStations,gNoise]);
+		
+		this.GetE('Defs_'+freq).appendChild(
+				E('clipPath',{'overflow':'hidden', 'clipPathUnits':'userSpaceOnUse', id:"noiseclipPath"+freq},null,'SVG') );
+		this.GetE('Defs_'+freq).appendChild(
+				E('clipPath',{'overflow':'hidden', 'clipPathUnits':'userSpaceOnUse', id:"bottom_dwellers_"+freq},null,'SVG') );
+		this.GetE('bottom_dwellers_'+freq).appendChild(
+				 E('rect',{x: -50, y: 0, width: parseInt(gXaxis.getAttribute("width"))+200, height: tier_height-1, fill: "#111"},null,'SVG') );
+		L.dom.append(svgChart, [E('rect',{x: -50, y: 0, width: 40, height: chart_height, fill: "#111"},null,'SVG'), gYaxis, gXaxis] );
 		
 		chan_analysis.sigInc = ( chan_analysis.offset_tbl[ '-120dBm' ] - chan_analysis.offset_tbl[ '0dBm' ] )/120;
 
