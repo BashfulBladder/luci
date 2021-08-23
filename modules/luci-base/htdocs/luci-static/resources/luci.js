@@ -1548,6 +1548,11 @@
 		 * Specifies children to append to the newly created element.
 		 * Refer to {@link LuCI.dom#append dom.append()} for details.
 		 *
+		 * @param {string|url|null} [nmsp]
+		 * Specified the alternative namespace to create the element in.
+		 * When the value is 'HTML', 'SVG', or 'XMLNS', the defined URL
+		 * will be provided. Provided a url, validation will occur before use.
+		 *
 		 * @throws {InvalidCharacterError}
 		 * Throws an `InvalidCharacterError` when the given `html`
 		 * argument contained malformed markup (such as not escaped
@@ -1562,7 +1567,9 @@
 			var html = arguments[0],
 			    attr = arguments[1],
 			    data = arguments[2],
-			    elem;
+			    nmsp = arguments[3],
+			    elem,
+			    nsURL;
 
 			if (!(attr instanceof Object) || Array.isArray(attr))
 				data = attr, attr = null;
@@ -1578,7 +1585,28 @@
 			else if (html.charCodeAt(0) === 60) {
 				elem = this.parse(html);
 			}
-			else {
+			else if (nmsp) {
+				switch (nmsp) {
+				case 'HTML':
+					nsURL = "http://www.w3.org/1999/xhtml"
+					break;
+
+				case 'SVG':
+					nsURL = "http://www.w3.org/2000/svg"
+					break;
+
+				case 'XMLNS':
+					nsURL = "http://www.w3.org/2000/xmlns/"
+					break;
+										
+				default:
+					try {
+						nsURL = new URL(nmsp);
+					}
+					catch(e) { }
+				}
+				elem = document.createElementNS(nsURL, html);
+			} else {
 				elem = document.createElement(html);
 			}
 
