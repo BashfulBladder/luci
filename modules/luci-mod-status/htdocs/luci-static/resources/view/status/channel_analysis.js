@@ -12,12 +12,12 @@
 //	TODO
 //
 //	pare luci-mod-status.json ACL list
-//  figure out how to display vendor (hover over table bssid, setInterval on bssid, new column, name(vendor)?)
 //  catch potential issues in OUIdb generation
 //  revisit the whole button.disable morass
 /* ***************************************************** */
 
 var OUIdb = {};
+var tableTick = 0;
 
 return view.extend({
 	callFrequencyList : rpc.declare({
@@ -153,24 +153,43 @@ return view.extend({
 		btn.parentNode.removeChild(btn);
 	},
 	
-	fuzzyOUIsearch: function(bssid) { //"2091D9"
+	fuzzyOUIsearch: function(bssid) {
 		var newID,
 			results = [],
 			hexID_A = bssid.replace(/:/g,'').split(''),
 			hex = '0123456789ABCDEF'.split('');
-		//console.log(hexID_A);
+		
 		for (var i=0; i<6; i++) {
 			newID="";
 			for (var h=0; h<hex.length; h++) {
 				for (var b=0; b<6; b++) {
 					newID+= (i==b ? hex[h] : hexID_A[b]);
 				}
-				//console.log(newID);
 				if (OUIdb[newID])
 					if (!results.includes(newID))
 						results.push(newID);
 				newID="";
 			}
+		}
+		return results;
+	},
+	
+	fuzzyMACsearch: function (scanCache, a_bssid) {
+		var results = [],
+			a_octets = a_bssid.split(':');
+		for (var bs in scanCache) {
+			if (a_bssid === bs)
+				continue;
+			
+			var o_matches=0,
+			target_octets = bs.split(':');
+			
+			for (var o=0; o<a_octets.length; o++) {
+				if (a_octets[o] === target_octets[o])
+					o_matches++;
+			}
+			if (o_matches == 5)
+				results.push(bs);
 		}
 		return results;
 	},
@@ -203,13 +222,22 @@ return view.extend({
 			value
 		]);
 	},
+	
+	switch_BSSID_OUI: function() {
+		var freq = this.radios[this.active_tab].graph.tab.getAttribute('frequency'),
+			tableBSSIDcolumn = this.GetE('BSSID'+freq),
+			col_opts = ['BSSID','Vendor'];
+			
+		tableBSSIDcolumn.innerHTML = col_opts[tableTick % 2];
+		tableTick++;
+	},
 
 	add_wifi_to_graph: function(device, res, channels, channel_width) {
 		if (!this.active_tab)
 			return;
 
 		var chanArr = [],
-			chan, chanInc, xInc, xCenter, xWidth, signal, wPath, bOUI,
+			chan, chanInc, xInc, xCenter, xWidth, signal, wPath,
 			wifiE, wifiFE, wifiTE, wifiGroup,
 			chan_analysis = this.radios[device].graph,
 			scanCache = this.radios[device].scanCache,
@@ -237,21 +265,7 @@ return view.extend({
  			scanCache[res.bssid].color = random.derive_color(res.bssid);
  		if (scanCache[res.bssid].graph == null)
  			scanCache[res.bssid].graph = [];
- 			
- 		if (OUIdb) {
- 			if (scanCache[res.bssid].vendor == null) {
- 				bOUI = res.bssid.replace(/:/g,'').slice(0,6);
- 				scanCache[res.bssid].vendor = OUIdb[bOUI] ? OUIdb[bOUI] : 'unknown';
- 				scanCache[res.bssid].fuzzyOUIs = OUIdb[bOUI] ? [] : this.fuzzyOUIsearch(res.bssid);
- 				
- 				console.log("Station : " + (res.ssid != null ? res.ssid : 'hidden') );
- 				console.log("BSSID : " + res.bssid + " -> " +res.bssid.replace(/:/g,''));
- 				console.log("Vendor : " + scanCache[res.bssid].vendor );
- 				console.log("Fuzzy OUIs : " + scanCache[res.bssid].fuzzyOUIs );
- 				console.log("---------------------------------------------------------------" );
- 			}
- 		}
- 			
+		
  		if (channels.length > 1) {
  			chan = ((channels[0]+channels[1])/2);
 			xCenter = chan_analysis.offset_tbl[ chan] ;
@@ -499,9 +513,28 @@ return view.extend({
 				if (scanCache[results[i].bssid] == null) {
 					scanCache[results[i].bssid] = {};
 					scanCache[results[i].bssid].color = random.derive_color(results[i].bssid);
+					
+					if (OUIdb) {
+ 						if (scanCache[results[i].bssid].vendor == null) {
+ 							var bOUI = results[i].bssid.replace(/:/g,'').slice(0,6);
+ 							
+ 							scanCache[results[i].bssid].vendor = OUIdb[bOUI] ? OUIdb[bOUI] : 'unknown';
+ 							scanCache[results[i].bssid].fuzzyOUIs = this.fuzzyOUIsearch(results[i].bssid);
+ 							scanCache[results[i].bssid].parentDev = null;
+ 							scanCache[results[i].bssid].subSSIDs = [];
+ 						}
+ 					}
 				}
 
 				scanCache[results[i].bssid].data = results[i];
+			}
+			
+			if (OUIdb) {
+				for (var j in scanCache) { //CA:3A:6B:2D:20:06
+					if (scanCache[j].vendor === 'unknown') {
+						scanCache[j].subSSIDs = this.fuzzyMACsearch(scanCache, j);
+					}
+				}
 			}
 
 			if (scanCache[local_wifi.bssid] == null) {
@@ -538,9 +571,20 @@ return view.extend({
 				]);
 			}
 
-			for (var k in scanCache)
+			for (var k in scanCache) {
 				if (scanCache[k].stale)
 					results.push(scanCache[k].data);
+				
+				if (scanCache[k].subSSIDs && scanCache[k].subSSIDs.length) {
+					for (var bs in scanCache[k].subSSIDs) {
+						var tester = scanCache[k].subSSIDs[bs];
+						if (scanCache[tester] && (scanCache[tester].vendor !== 'unknown' || 
+								(scanCache[tester].ssid != null && scanCache[tester].fuzzyOUIs != [])) ) {
+							scanCache[k].parentDev = tester;
+						}
+					}
+				}
+			}
 
 			results.sort(function(a, b) {
 				var diff = (b.quality - a.quality) || (a.channel - b.channel);
@@ -566,7 +610,8 @@ return view.extend({
 					q = (qv > 0 && qm > 0) ? Math.floor((100 / qm) * qv) : 0,
 					s = res.stale ? 'opacity:0.5' : '',
 					center_channels = [res.channel],
-					chan_width = 2;
+					chan_width = 2,
+					vendor = scanCache[res.bssid].vendor;
 
 				/* Skip WiFi not supported by the current band */
 				if (chan_analysis.offset_tbl[res.channel] == null)
@@ -604,6 +649,17 @@ return view.extend({
 				}
 
 				this.add_wifi_to_graph(this.active_tab, res, center_channels, chan_width);
+				
+				if (scanCache[res.bssid].parentDev) {
+					s+= ' font-style:italic';
+					vendor='Multi-SSID ('+ scanCache[ scanCache[res.bssid].parentDev ].data.ssid +')';
+				} else if (scanCache[res.bssid].vendor === 'unknown' && scanCache[res.bssid].fuzzyOUIs.length) {
+					vendor='';
+					for (var z=0; z<scanCache[res.bssid].fuzzyOUIs.length; z++) {
+						vendor+='(?) ' + OUIdb[ scanCache[res.bssid].fuzzyOUIs[z] ] + ' (?)'
+							+ (z+1 == scanCache[res.bssid].fuzzyOUIs.length ? '' : '\n');
+					}
+				}
 
 				rows.push([
 					E('span', { 'style': s }, this.render_signal_badge(q, res.signal)),
@@ -614,12 +670,13 @@ return view.extend({
 					E('span', { 'style': s }, '%d'.format(res.channel)),
 					E('span', { 'style': s }, '%h'.format(res.channel_width)),
 					E('span', { 'style': s }, '%h'.format(res.mode)),
-					E('span', { 'style': s }, '%h'.format(res.bssid))
+					E('span', { 'style': s }, '%h'.format( (tableTick % 2 == 0 ? res.bssid : vendor) ))
 				]);
 
 				res.stale = true;
 			}
 			this.spreadTextLabels();
+			this.switch_BSSID_OUI();
 			cbi_update_table(table, rows);
 		}, this))
 	},
@@ -772,10 +829,10 @@ return view.extend({
 					E('tr', { 'class': 'tr table-titles' }, [
 						E('th', { 'class': 'th col-2 middle center' }, _('Signal')),
 						E('th', { 'class': 'th col-4 middle left' }, _('SSID')),
-						E('th', { 'class': 'th col-2 middle center hide-xs' }, _('Channel')),
+						E('th', { 'class': 'th col-1 middle center hide-xs' }, _('Channel')),
 						E('th', { 'class': 'th col-2 middle center' }, _('Channel Width')),
 						E('th', { 'class': 'th col-2 middle left hide-xs' }, _('Mode')),
-						E('th', { 'class': 'th col-3 middle left hide-xs' }, _('BSSID'))
+						E('th', { 'class': 'th col-4 middle center hide-xs', 'id': 'BSSID'+freq }, _('BSSID'))
 					])
 				]),
 				tab = E('div', { 'data-tab': ifname+freq, 'data-tab-title': ifname+' ('+freq+')', 'frequency': freq },
@@ -834,11 +891,12 @@ return view.extend({
 				}
 			}
 		}
+		v.appendChild(E('div', { 'class': 'tr.cbi-section-table-descr', 'style': 'font-style:italic'}, _('Cell in italics denotes Multi-SSID broadcasts.')));
 		
 		if (!Object.keys(OUIdb).length) {
 			v.appendChild(E('hr'));
 			v.appendChild(E('button', {
-				'class': 'cbi-button cbi-button-action', //'class': 'cbi-button cbi-button-action important',
+				'class': 'cbi-button cbi-button-action',
 				'id': 'OUIbutton',
 				'disabled': null,
 				'click': ui.createHandlerFn(this, 'downloadOUIdb')
