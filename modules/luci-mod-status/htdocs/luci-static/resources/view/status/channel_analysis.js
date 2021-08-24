@@ -222,9 +222,6 @@ return view.extend({
 	},
 
 	add_wifi_to_graph: function(device, res, channels, channel_width) {
-		if (!this.active_tab)
-			return;
-
 		var chanArr = [],
 			chan, chanInc, xInc, xCenter, xWidth, signal, wPath,
 			wifiE, wifiFE, wifiTE, wifiGroup,
@@ -245,6 +242,9 @@ return view.extend({
 		
 		for (var f in band_data) {
 			chanArr.push(band_data[f].chn);
+		}
+		if (!chanArr.includes(res.channel)) {
+			return; // tab was switched during a survey, results came in for wrong tab
 		}
 		
 		chanInc = chanArr[1]-chanArr[0];
