@@ -41,49 +41,8 @@ return view.extend({
 		expect: { results: [] }
 	}),
 	
-	SetAtr: function(E,at,val) {E.setAttribute(at,val)},
-	ApndCh: function(E,ch) {E.appendChild(ch)},
-	NewE: function(type) {return document.createElementNS("http://www.w3.org/2000/svg",type)},
 	GetE: function(ID) {return document.getElementById(ID)},
- 	SetE: function(E, arr) {
- 		for(var i=0;i<arr.length;i++) {
- 			this.SetAtr(E,arr[i][0],arr[i][1]);
- 		}
- 	},
- 	AddCh: function(p,arr) {
- 		for(var i=0;i<arr.length;i++) {
- 			this.ApndCh(p,arr[i]);
- 		}
- 	},
- 	EmptyE: function(ID) {
- 		var E = this.GetE(ID);
- 		var ch = E.firstElementChild;
- 		while (ch) {
- 			ch.remove();
- 			ch = E.firstElementChild;
- 		}
- 	},
- 	
- 	GenLineE: function(x1,x2,y1,y2,lID,strok) {
- 		var aL=this.NewE("line");
- 		this.SetE(aL,[ ['x1',x1],["x2",x2],["y1",y1],["y2",y2],["stroke",strok||""] ]);
- 		aL.id=lID||"";
- 		return aL;
- 	},
- 	GenPathE: function(strok,stk_w,apath,fillC) {
- 		var aP=this.NewE("path");
- 		this.SetE(aP,[ ['stroke',strok],['stroke-width',stk_w],['d',apath] ]);
- 		this.SetAtr(aP,"style",("fill:"+fillC||"none"));
- 		return aP;
- 	},
- 	GenTextE: function(xloc,yloc,trans_vars,anchor,content,fsize,fstyle) {
- 		var tE=this.NewE("text");
- 		this.SetE(tE,[ ["x",xloc],["y",yloc],["transform",trans_vars],["text-anchor",anchor],["font-size",fsize||""],
- 			["style",fstyle||""] ]);
- 		tE.textContent=content;
- 		return tE
- 	},
- 	
+ 	 	
  	genOUIvar: function(throw_err) {
  		fs.stat("/etc/OUI.json").then(function(fstats) {
  			if (fstats.size > 999000) {
@@ -237,7 +196,7 @@ return view.extend({
 			sigMin = chan_analysis.offset_tbl[ '-120dBm' ],		//5GHz = 238.6
  			sigInc = chan_analysis.sigInc,						//5GHz = 1.98
  			oldSignal=-255;
-				
+		
 		function tranS(ns) { return Math.abs(ns)*sigInc; }
 		
 		for (var f in band_data) {
@@ -278,7 +237,7 @@ return view.extend({
 			}
 		}
 		if (scanCache[res.bssid].graph[i] != null && res.signal != oldSignal) {
-			this.EmptyE(res.bssid);
+			L.dom.empty(res.bssid);
 		}
 		//BAFFLED: where is this i being set?? AND why is always == 2 (in both 2.4GHz & 5GHz)
 		if (scanCache[res.bssid].graph[i] == null || res.signal != oldSignal) {
@@ -302,24 +261,27 @@ return view.extend({
 						+","+(xCenter+ ((xWidth*0.5)+(xSpread*0.25)))+","+sigMin /* x2,y2 */
 						+","+(xCenter+ ((xWidth*0.5)+(xSpread*0.5)))+","+sigMin /* endpoint */
 						+" ";
-			wifiE=this.GenPathE(scanCache[res.bssid].color,3,wPath,'none'); //signal line
-			wifiE.id=res.bssid+"_"+res.signal;
-			wifiFE=this.GenPathE('none',0,wPath+"z",scanCache[res.bssid].color); //signal fill
-			wifiFE.style.opacity=0.3;
+			wifiE = E('path',{d: wPath, id: res.bssid+"_"+res.signal,
+						style: 'stroke:'+scanCache[res.bssid].color+'; fill:none; stroke-width:3'},null,'SVG') //signal line
+			wifiFE = E('path',{d: wPath+"z", id: res.bssid+"_"+res.signal,
+						style: 'stroke:none; fill:'+scanCache[res.bssid].color+'; opacity:0.3'},null,'SVG') //signal fill
+			
 			if (noiseCE!=null) {
 				if (noiseCE.firstElementChild != null) {
-					this.SetAtr(wifiE,"clip-path","url(#noiseclipPath"+freq+")"); //applies the noise floor clipPath to the signal stroke
+					L.dom.attr(wifiE, 'clip-path', 'url(#noiseclipPath'+freq+')'); //applies the noise floor clipPath to the signal stroke
 				}
 			}
 			wifiGroup = this.GetE(res.bssid);
 			if (!wifiGroup) {
-				wifiGroup = this.NewE("g");
-				wifiGroup.id=res.bssid;
+				wifiGroup = E('g',{id: res.bssid},null,'SVG');
+			} else {
+				L.dom.empty(wifiGroup);
 			}
-			wifiTE = this.GenTextE(xCenter,signal-8,"","middle",res.ssid || res.bssid,"14px","fill:"+scanCache[res.bssid].color);
-			wifiTE.id=res.bssid+"_tE";
-			this.AddCh(wifiGroup,[wifiE,wifiFE,wifiTE]);
-			this.ApndCh(gStations,wifiGroup);
+			wifiTE = E('text',{x: xCenter, y: signal-8, id: res.bssid+'_tE', 'text-anchor': 'middle',
+						'font-size': '14px', style: 'fill:'+scanCache[res.bssid].color}, res.ssid || res.bssid ,'SVG');
+			
+			L.dom.append(wifiGroup,[wifiE,wifiFE,wifiTE]);
+			gStations.appendChild(wifiGroup);
 
 			scanCache[res.bssid].graph[i] = { group : wifiGroup, line : wifiE, text : wifiTE };
 		}
@@ -343,7 +305,7 @@ return view.extend({
 				for (var b=0; b < bsALen; b++) {
 					var celltE = this.GetE(textCache[chan].bssidA[b]+"_tE");
 					if (celltE) {
-						this.SetAtr(celltE,'y', abelH-(b*aLblH) );
+						L.dom.attr(celltE,'y', abelH-(b*aLblH) );
 					}
 				}
 			}
@@ -359,8 +321,7 @@ return view.extend({
 			svgChart = this.GetE('chartarea'+freq),
 			chart_height = parseInt(chan_analysis.graph.style.height.replace("px", "")),
 			chart_width = chan_analysis.tab.getBoundingClientRect().width, //940
- 			gYaxis = this.NewE("g"), gNoise = this.NewE("g"), gStations = this.NewE("g"),
- 			gXaxis = this.NewE("symbol");
+ 			gYaxis, gNoise, gStations, gXaxis;
 			
 		function TestEndChannel(ch,tier_arr) {
  			for (var t=0; t< tier_arr.length; t++) {
@@ -406,12 +367,12 @@ return view.extend({
 		chan_analysis.col_width = channel_width;
 		tier_height = (chart_height-(tier_padding*tiers.length)) / tiers.length;
 		
-		gXaxis.id="Chart_XLabels"+freq;
-		gXaxis.setAttribute("width", (chan_list.length + ch_gap + tiers.length)*channel_width);
+		gXaxis = E('symbol',{width: (chan_list.length + ch_gap + tiers.length)*channel_width, id:"Chart_XLabels"+freq},null,'SVG');
+		gYaxis = E('g',{},null,'SVG');
 						 
 		for (var i=0; i<chan_list.length; i++) {
-			var ch_transl;
-			var gchannel=this.NewE("g");
+			var ch_transl, gchannel;
+				
 			if ((chan_list[i+1] - chan_list[i] != channel_incr) & (i+1 != chan_list.length)) {
 				////when a break is detected, add a 1/2 width spacer at the end
 				ch_transl=channel_width*(i+1) + channel_width*(ch_gap++) + channel_width*0.5;
@@ -433,41 +394,38 @@ return view.extend({
 				textCache[(chan_list[i]-2)] = { signalH: -255, bssidA: [] }; //opportunistic initial fill
 				textCache[(chan_list[i]+2)] = { signalH: -255, bssidA: [] }; //opportunistic initial fill
 			}
-			this.SetAtr(gchannel,"transform","translate("+ch_transl+",3)");
-		
-			this.ApndCh(gchannel,this.GenTextE(0,tier_height+16,"","middle",chan_list[i],"18px","fill:#999"));
-			this.ApndCh(gchannel,this.GenLineE(0,0,0,tier_height,"","#666"));
-			this.ApndCh(gXaxis,gchannel);
+			gchannel = E('g',{transform: "translate("+ch_transl+",3)"},null,'SVG');
+			L.dom.append(gchannel, [
+						E('text',{x: 0, y: tier_height+16, 'text-anchor': 'middle', 'font-size': '18px', style: 'fill:#999'},chan_list[i],'SVG'),
+						E('line',{x1: 0, x2: 0, y1: 0, y2: tier_height, stroke: '#666'},null,'SVG') ]);
+			gXaxis.appendChild(gchannel);
 		}
 		
 		for (var t=0; t< tiers.length; t++) {
-			var gTier=this.NewE("g"), XcloneU=this.NewE("use");
+			var gTier = E('g',{},null,'SVG');
+			
 			for (var j=0; j>=-120; j-=10) {
 				var y_height = (tier_height+tier_padding)*t + (tier_height/120)*Math.abs(j);
 				if (t==0) {
 					chan_analysis.offset_tbl[ j+"dBm" ] = y_height;
 				}
-				this.AddCh(gTier,[this.GenTextE(-20,y_height+5,"","end",j,"11px","fill:#999"),
-									this.GenLineE(-10,-16,y_height+2,y_height+2,"","#999")]);
+				L.dom.append(gTier, [E('text',{x: -20, y: y_height+5, 'text-anchor': 'end', 'font-size': '11px', style: 'fill:#999'}, j ,'SVG'),
+									 E('line',{x1: -10, x2: -16, y1: y_height+2, y2: y_height+2, stroke: '#999'},null,'SVG') ]);
 			}
-			this.ApndCh(gYaxis,gTier);
-			this.SetAtr(XcloneU,"transform","translate(-20,"+((tier_height+tier_padding)*t)+")");
-			XcloneU.setAttributeNS(null, "href", "#Chart_XLabels"+freq);
-			XcloneU.setAttribute("x", -(chart_section_loc[t][0]+25));
-			XcloneU.setAttribute("width", (chart_section_loc[t][1]+chart_section_loc[t][0]+75));
-			this.ApndCh(svgChart,XcloneU);
+			gYaxis.appendChild(gTier); 
+			svgChart.appendChild( E('use',{x: -(chart_section_loc[t][0]+25), width: (chart_section_loc[t][1]+chart_section_loc[t][0]+75), 
+									transform:'translate(-20,'+((tier_height+tier_padding)*t)+')', href:'#Chart_XLabels'+freq},null,'SVG') );
 		}
 		
-		gStations.id='Stations_'+freq;
-		this.SetAtr(gStations,"clip-path","url(#bottom_dwellers_"+freq+")");
-		gNoise.id='Noise_'+freq;
+		gStations = E('g',{'clip-path': "url(#bottom_dwellers_"+freq+")", id:'Stations_'+freq},null,'SVG');
+		gNoise = E('g',{id:'Noise_'+freq},null,'SVG');
 		
 		L.dom.append(gXaxis, [gStations,gNoise]);
 		
 		this.GetE('Defs_'+freq).appendChild(
-				E('clipPath',{'overflow':'hidden', 'clipPathUnits':'userSpaceOnUse', id:"noiseclipPath"+freq},null,'SVG') );
+				E('clipPath',{overflow:'hidden', clipPathUnits:'userSpaceOnUse', id:"noiseclipPath"+freq},null,'SVG') );
 		this.GetE('Defs_'+freq).appendChild(
-				E('clipPath',{'overflow':'hidden', 'clipPathUnits':'userSpaceOnUse', id:"bottom_dwellers_"+freq},null,'SVG') );
+				E('clipPath',{overflow:'hidden', clipPathUnits:'userSpaceOnUse', id:"bottom_dwellers_"+freq},null,'SVG') );
 		this.GetE('bottom_dwellers_'+freq).appendChild(
 				 E('rect',{x: -50, y: 0, width: parseInt(gXaxis.getAttribute("width"))+200, height: tier_height-1, fill: "#111"},null,'SVG') );
 		L.dom.append(svgChart, [E('rect',{x: -50, y: 0, width: 40, height: chart_height, fill: "#111"},null,'SVG'), gYaxis, gXaxis] );
@@ -500,7 +458,7 @@ return view.extend({
 			var results = data[0],
 			    local_wifi = data[1],
 			    rows = [];
-
+			    
 			function initVendorVars(bssid, fuzzyOUIsearch) {
 				var bOUI = bssid.replace(/:/g,'').slice(0,6);
 				
@@ -683,7 +641,7 @@ return view.extend({
 		var chanArr = [], noiseArr = [],
 			chanInc, xInc,
 			nX, nY, prevX, prevY, 
-			gNoise, gStations, noiseCE, noisePE, noiseFE, noisePath,
+			gNoise, gStations, noiseCE, noisePath,
 			chan_analysis = this.radios[device].graph,
 			band_data = this.radios[device].freqData[freq],
 			sigMax = chan_analysis.offset_tbl[ '0dBm' ],		//5GHz = 0
@@ -702,8 +660,8 @@ return view.extend({
 		gNoise = this.GetE(('Noise_'+freq));
 		gStations = this.GetE(('Stations_'+freq));
 		noiseCE = this.GetE(('noiseclipPath'+freq));
-		this.EmptyE(("noiseclipPath"+freq));
-		this.EmptyE(('Noise_'+freq));
+		L.dom.empty(noiseCE);
+		L.dom.empty(gNoise);
 		
 		for (var i=0; i<noiseArr.length; i++) {
 			var nVal=noiseArr[i];
@@ -730,12 +688,10 @@ return view.extend({
 		}
 		noisePath+="H"+(nX+(chan_analysis.offset_tbl[ chanArr[1] ] - chan_analysis.offset_tbl[ chanArr[0] ]));
 		
-		noisePE=this.GenPathE("#fff",3,noisePath,"transparent");
-		noiseFE=this.GenPathE("#fff",0,noisePath+"V"+tranNs(-120)+" H0","#444");
-		noiseFE.style.opacity=0.8;
+		L.dom.append(gNoise, [E('path',{d: noisePath, stroke: '#fff', 'stroke-width': 3, style: 'fill:transparent'},null,'SVG'), //stroke line
+								E('path',{d: noisePath+"V"+tranNs(-120)+" H0", style: 'stroke:#fff; fill:#444; stroke-width:0; opacity:0.8'},null,'SVG')] ); //transparent fill
 		
-		this.AddCh(gNoise,[noisePE,noiseFE]);		
-		this.ApndCh(noiseCE,this.GenPathE("#fff",0,noisePath+"V"+tranNs(0)+"H0V"+tranNs(-120)+"z","#fff"));
+		noiseCE.appendChild( E('path',{d: noisePath+"V"+tranNs(0)+"H0V"+tranNs(-120)+"z", style: 'stroke:#fff; fill:#fff; stroke-width:0'},null,'SVG') );
 	},
 	
 	callNetworkNoise: function(rdev, wnet) {
