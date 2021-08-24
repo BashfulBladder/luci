@@ -17,7 +17,6 @@
 /* ***************************************************** */
 
 var OUIdb = {};
-var tableTick = 0;
 
 return view.extend({
 	callFrequencyList : rpc.declare({
@@ -176,8 +175,8 @@ return view.extend({
 			tableBSSIDcolumn = this.GetE('BSSID'+freq),
 			col_opts = ['BSSID','Vendor'];
 			
-		tableBSSIDcolumn.innerHTML = col_opts[tableTick % 2];
-		tableTick++;
+		tableBSSIDcolumn.innerHTML = col_opts[this.radios[this.active_tab].tableTick % 2];
+		this.radios[this.active_tab].tableTick++;
 	},
 
 	add_wifi_to_graph: function(device, res, channels, channel_width) {
@@ -210,7 +209,7 @@ return view.extend({
 		xInc = chan_analysis.col_width/chanInc;
 		
  		if (scanCache[res.bssid].graph == null)
- 			scanCache[res.bssid].graph = [];
+ 			scanCache[res.bssid].graph = { };
 		
  		if (channels.length > 1) {
  			chan = ((channels[0]+channels[1])/2);
@@ -225,7 +224,7 @@ return view.extend({
 			textCache[chan].bssidA.push(res.bssid);
 		}
 		
-		if (scanCache[res.bssid].graph[i] != null) {
+		if (scanCache[res.bssid].graph[freq] != null) {
 			var sigPath, thisGroup = this.GetE(res.bssid);
 			if (thisGroup) {
 				for (var c = 0; c < thisGroup.childNodes.length; c++) {
@@ -236,11 +235,11 @@ return view.extend({
 				}
 			}
 		}
-		if (scanCache[res.bssid].graph[i] != null && res.signal != oldSignal) {
+		if (scanCache[res.bssid].graph[freq] != null && res.signal != oldSignal) {
 			L.dom.empty(res.bssid);
 		}
-		//BAFFLED: where is this i being set?? AND why is always == 2 (in both 2.4GHz & 5GHz)
-		if (scanCache[res.bssid].graph[i] == null || res.signal != oldSignal) {
+		
+		if (scanCache[res.bssid].graph[freq] == null || res.signal != oldSignal) {
 				//a single channel is a5MHz subcarrier; 20MHz is 4 of them; when channel_width is '2', it isn't actually 2 channels, its 2(0)mhz
 			xWidth = xInc * channel_width *2;
 				//not quite the 16.25/20 from https://www.cnrood.com/en/media/solutions/Wi-Fi_Overview_of_the_802.11_Physical_Layer.pdf
@@ -283,10 +282,9 @@ return view.extend({
 			L.dom.append(wifiGroup,[wifiE,wifiFE,wifiTE]);
 			gStations.appendChild(wifiGroup);
 
-			scanCache[res.bssid].graph[i] = { group : wifiGroup, line : wifiE, text : wifiTE };
+			scanCache[res.bssid].graph[freq] = { group : wifiGroup };
 		}
-		scanCache[res.bssid].graph[i].group.style.zIndex = res.signal*-1;
-		scanCache[res.bssid].graph[i].group.style.opacity = res.stale ? '0.5' : null;
+		L.dom.attr(scanCache[res.bssid].graph[freq].group, 'style', "z-index:"+(res.signal*-1)+ (res.stale ? '; opacity:0.5' : '') );
 	},
 	
 	spreadTextLabels: function() {
@@ -444,6 +442,7 @@ return view.extend({
 		var radioDev = this.radios[this.active_tab].dev,
 		    table = this.radios[this.active_tab].table,
 		    chan_analysis = this.radios[this.active_tab].graph,
+		    tableTick = this.radios[this.active_tab].tableTick,
 		    scanCache = this.radios[this.active_tab].scanCache,
 		    textCache = this.radios[this.active_tab].textCache;
 		    
@@ -803,6 +802,7 @@ return view.extend({
 					dev: wifiDevs[ifname].dev,
 					graph: graph_data,
 					table: table,
+					tableTick: 0,
 					freqData: freq_tbl,
 					scanCache: {},
 					textCache: {}
