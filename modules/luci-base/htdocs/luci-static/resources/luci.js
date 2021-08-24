@@ -1851,6 +1851,22 @@
 					return false;
 
 			return true;
+		},
+		
+		/**
+		 * Given a DOM `Node` remove the child nodes leaving this node empty.
+		 *
+		 * @instance
+		 * @memberof LuCI.dom
+		 * @param {Node} node
+		 * The DOM `Node` instance to empty of children.
+		 */
+		empty: function(node) {
+			var child = node.firstElementChild;
+			while (child) {
+				child.remove();
+				child = node.firstElementChild;
+			}
 		}
 	});
 
