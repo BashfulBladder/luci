@@ -13,7 +13,11 @@
 //
 //	pare luci-mod-status.json ACL list
 //  catch potential issues in OUIdb generation
-//  revisit the whole button.disable morass
+//  settings checkbox for using dedicated scan0 5GHz (uci setting???)
+//		(my R7800 either shows localhost & is client-available OR does a proper scan & is client-unavailable)
+//	each radioX device should get a "Start Active Scanning..." & "Disable Active Scanning" buttons
+//		(now that I know to avoid ui.createHandlerFn which was adding a class 'spinning' & button became unreachable in that Promise)
+//	set noise scan interval (uci setting???)
 /* ***************************************************** */
 
 var OUIdb = {};
@@ -43,16 +47,17 @@ return view.extend({
 	GetE: function(ID) {return document.getElementById(ID)},
  	 	
  	genOUIvar: function(throw_err) {
- 		fs.stat("/etc/OUI.json").then(function(fstats) {
+ 		return fs.stat("/etc/OUI.json").then(function(fstats) {
  			if (fstats.size > 999000) {
  				fs.read_direct(fstats.path, 'text').then(function(response) { //now it becomes a JSON
  					OUIdb=JSON.parse(response);
  					//console.log(OUIdb["2091D9"]); //I'M SPA (more like I'M GOOD, thx)
  				});
+ 			return fstats;
  			}
- 		}).catch(function(throw_err, fs_err) {
+ 		}).catch(function(err, throw_err) {
  			if (throw_err)
-				throw new Error(_('Unable to find /etc/OUI.json: %s').format(fs_err.message));
+				throw new Error(_('Unable to find /etc/OUI.json: %s').format(err.message));
 		});
  	},
  	
@@ -77,6 +82,11 @@ return view.extend({
 					} else {
 						throw new Error(response.stdout);
 					}
+					fs.remove("/tmp/oui.sh").then(function(response) {
+						if (response !== 0)
+							throw new Error(response);
+					})
+					fs.remove('/tmp/oui.txt')
 			}.bind(this));
 		}.bind(this));
 	},
@@ -90,14 +100,35 @@ return view.extend({
 		});
 	},
 	
+	infoOUIdb: function(OUI_db_FS) {
+		return '<br>OUI db is '+OUI_db_FS.size.toLocaleString()+
+					" bytes for "+Object.keys(OUIdb).length.toLocaleString()+" records. Downloaded: "+ new Date(OUI_db_FS.mtime*1000)
+	},
+	
+	handleUpdateOUIdb: function() {
+		var OUI_db_FS = this.wgetOUI(); //not sure this will return anything (deeply nested return vals)
+		console.log(OUI_db_FS);
+		this.GetE('OUI_Upd_button').setAttribute('disabled',true);
+		//this.GetE('OUI_info').textContent = this.infoOUIdb(OUI_db_FS);
+	},
 
- 	//couldn't figure out a way to disable the button (setting .disabled=true in a myriad of ways never reflected the change; might be readonly)
- 	downloadOUIdb: function(ev) {
+	handleDeleteOUIdb: function() {
+		fs.remove("/etc/OUI.json").then(function(response) {
+			if (response === 0) {
+				this.GetE('OUI_Upd_button').setAttribute('disabled',true);
+				this.GetE('OUI_Del_button').setAttribute('disabled',true);
+				this.GetE('OUI_Get_button').removeAttribute('disabled');
+				this.GetE('OUI_info').textContent = "";
+			}
+		}.bind(this));
+	},
+
+ 	handleDownloadOUIdb: function() {
 		this.wgetOUI();
-		this.processOUI();
 		
-		var btn = this.GetE("OUIbutton");
-		btn.parentNode.removeChild(btn);
+		this.GetE('OUI_Upd_button').removeAttribute('disabled');
+		this.GetE('OUI_Del_button').removeAttribute('disabled');
+		this.GetE('OUI_Get_button').setAttribute('disabled',true);
 	},
 	
 	fuzzyOUIsearch: function(bssid) {
@@ -171,6 +202,9 @@ return view.extend({
 	},
 	
 	switch_BSSID_OUI: function() {
+		if (!Object.keys(OUIdb).length)
+			return;
+		
 		var freq = this.radios[this.active_tab].graph.tab.getAttribute('frequency'),
 			tableBSSIDcolumn = this.GetE('BSSID'+freq),
 			col_opts = ['BSSID','Vendor'];
@@ -754,7 +788,8 @@ return view.extend({
 
 	render: function(data) {
 		var svg = data[0],
-		    wifiDevs = data[1];
+		    wifiDevs = data[1],
+		    OUI_db_FS = data[2];
 
 		var v = E('div', {}, E('div'));
 
@@ -789,7 +824,8 @@ return view.extend({
 					])
 				]),
 				tab = E('div', { 'data-tab': ifname+freq, 'data-tab-title': ifname+' ('+freq+')', 'frequency': freq },
-						[E('br'),csvg,E('br'),table,E('br')]),
+						[E('br'),csvg,E('br'),table,E('br'),E('div', { 'class': 'tr.cbi-section-table-descr', 'style': 'font-style:italic'},
+							_('Cell in italics denotes Multi-SSID broadcasts.'))]),
 				graph_data = {
 					graph: csvg,
 					offset_tbl: {},
@@ -828,7 +864,7 @@ return view.extend({
 
 				cbi_update_table(table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
 
-				v.firstElementChild.appendChild(tab)
+				v.firstElementChild.appendChild(tab);
 
 				requestAnimationFrame(L.bind(this.create_channel_graph, this, graph_data, freq));
 				
@@ -845,17 +881,19 @@ return view.extend({
 				}
 			}
 		}
-		v.appendChild(E('div', { 'class': 'tr.cbi-section-table-descr', 'style': 'font-style:italic'}, _('Cell in italics denotes Multi-SSID broadcasts.')));
-		
-		if (!Object.keys(OUIdb).length) {
-			v.appendChild(E('hr'));
-			v.appendChild(E('button', {
-				'class': 'cbi-button cbi-button-action',
-				'id': 'OUIbutton',
-				'disabled': null,
-				'click': ui.createHandlerFn(this, 'downloadOUIdb')
-			}, _('Download the OUI db.')));
-		}
+		v.firstElementChild.appendChild( E('div', { 'data-tab': 'settings', 'data-tab-title': _('General settings') }, [
+			E('button', { 'class': 'cbi-button cbi-button-action', 'id': 'OUI_Get_button', 'click': L.bind(this.handleDownloadOUIdb, this),
+					'disabled': Object.keys(OUIdb).length ? true : null }, _('Download OUI db.')),
+			E('button', { 'class': 'cbi-button cbi-button-action', 'id': 'OUI_Upd_button', 'click': L.bind(this.handleUpdateOUIdb, this),
+					'disabled': Object.keys(OUIdb).length ? null : true }, _('Update OUI db.')),
+			E('button', { 'class': 'cbi-button cbi-button-action', 'id': 'OUI_Del_button', 'click': L.bind(this.handleDeleteOUIdb, this),
+					'disabled': Object.keys(OUIdb).length  ? null : true}, _('Delete OUI db.')),
+			E('p', {'id': 'OUI_info'}, ( typeof OUI_db_FS !== "undefined" ? _('<br>OUI db is '+OUI_db_FS.size.toLocaleString()+
+					" bytes for "+Object.keys(OUIdb).length.toLocaleString()+" records. Downloaded: "+ new Date(OUI_db_FS.mtime*1000) ) : _("") )),
+			E('hr')
+			//checkbox for dedicated scan0 for 5GHz(save as uci setting?)
+			//noise scan interval (save as uci setting?)
+		]) );
 
 		ui.tabs.initTabGroup(v.firstElementChild.childNodes);
 
