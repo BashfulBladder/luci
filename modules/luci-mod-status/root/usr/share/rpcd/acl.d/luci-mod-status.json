@@ -55,8 +55,17 @@
 			}
 		}
 	},
-
+	
 	"luci-mod-status-channel_analysis": {
+		"description": "Grant access to wifi stats",
+		"read": {
+			"ubus": {
+				"iwinfo": [ "info", "freqlist" ]
+			}
+		}
+	},
+
+	"luci-mod-status-channel_analysis_remix": {
 		"description": "Grant access to the system route status",
 		"write": {
 			"cgi-io": [ "exec" ],
