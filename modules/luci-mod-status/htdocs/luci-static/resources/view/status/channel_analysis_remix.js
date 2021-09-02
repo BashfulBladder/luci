@@ -6,6 +6,7 @@
 'require ui';
 'require rpc';
 'require fs';
+'require uci';
 'require tools.prng as random';
 
 /* ***************************************************** */
@@ -13,11 +14,13 @@
 //
 //	pare luci-mod-status.json ACL list
 //  catch potential issues in OUIdb generation
-//  settings checkbox for using dedicated scan0 5GHz (uci setting???)
+//  actually implement dedicated_5G_network (not just setting the pref)
 //		(my R7800 either shows localhost & is client-available OR does a proper scan & is client-unavailable)
 //	each radioX device should get a "Start Active Scanning..." & "Disable Active Scanning" buttons
 //		(now that I know to avoid ui.createHandlerFn which was adding a class 'spinning' & button became unreachable in that Promise)
-//	set noise scan interval (uci setting???)
+//	tiers [] in create_channel_graph is going to be a problem when there are frequent gaps (like China)
+//	maybe disable GS prefs Save button if no changes
+// after saving change that indicator to 0 changes (cuz the 1 second poll delay)
 /* ***************************************************** */
 
 var OUIdb = {};
@@ -61,7 +64,7 @@ return view.extend({
 		});
  	},
  	
- 	//couldn't figure out redirects with fs.exec & fs_exec direct
+ 	//couldn't figure out redirects with fs.exec & fs_exec_direct
  	//traditional "awk '{print $1}' in.txt > out.txt" & "echo 'hi' > /tmp/out.txt" don't work 
  	//so instead of packaging a separate shell script, build one at runtime instead
  	processOUI: function() {
@@ -101,15 +104,15 @@ return view.extend({
 	},
 	
 	infoOUIdb: function(OUI_db_FS) {
-		return '<br>OUI db is '+OUI_db_FS.size.toLocaleString()+
-					" bytes for "+Object.keys(OUIdb).length.toLocaleString()+" records. Downloaded: "+ new Date(OUI_db_FS.mtime*1000)
+		return 'PRESENT @ /etc/OUI.json<br>OUI db is '+OUI_db_FS.size.toLocaleString()+
+					" bytes for "+Object.keys(OUIdb).length.toLocaleString()+" records. Downloaded: "+ new Date(OUI_db_FS.mtime*1000);
 	},
 	
 	handleUpdateOUIdb: function() {
 		var OUI_db_FS = this.wgetOUI(); //not sure this will return anything (deeply nested return vals)
 		console.log(OUI_db_FS);
 		this.GetE('OUI_Upd_button').setAttribute('disabled',true);
-		//this.GetE('OUI_info').textContent = this.infoOUIdb(OUI_db_FS);
+		this.GetE('OUI_info').textContent = this.infoOUIdb(OUI_db_FS);
 	},
 
 	handleDeleteOUIdb: function() {
@@ -118,7 +121,7 @@ return view.extend({
 				this.GetE('OUI_Upd_button').setAttribute('disabled',true);
 				this.GetE('OUI_Del_button').setAttribute('disabled',true);
 				this.GetE('OUI_Get_button').removeAttribute('disabled');
-				this.GetE('OUI_info').textContent = "";
+				this.GetE('OUI_info').textContent = "NOT PRESENT<br>";
 			}
 		}.bind(this));
 	},
@@ -750,6 +753,61 @@ return view.extend({
 			}, this, wnet))
 		]);
 	},
+	
+	handleUCIRefresh: function() {
+		var pref_noise_interval = parseInt(this.GetE('noise-interval').value),
+			pref_dedicated_scan = ( this.GetE('dedicated-scan-wnet').checked ? '1' : '0' );
+		
+ 		uci.set('luci', 'channel_analysis_r', 'scan_noise_interval', '%d'.format(pref_noise_interval));
+ 		uci.set('luci', 'channel_analysis_r', 'scan_dedicated_5G_network', pref_dedicated_scan);		
+
+		uci.save();
+		uci.changes().then(function(r) {
+			ui.changes.renderChangeIndicator(r);
+		})
+	},
+	
+	suspendUCIpoll: function() {
+		var GS = this.GetE('GSTab').settings;
+		if (GS.ucipollFn) {
+			poll.remove(GS.ucipollFn);
+			GS.ucipollFn = null;
+			poll.start();
+		}
+	},
+	
+	handleGS_Save: function() {
+		var GS = this.GetE('GSTab').settings,
+			pref_noise_interval = parseInt(this.GetE('noise-interval').value),
+			pref_dedicated_scan = ( this.GetE('dedicated-scan-wnet').checked ? '1' : '0' );
+		
+ 		uci.set('luci', 'channel_analysis_r', 'scan_noise_interval', '%d'.format(pref_noise_interval));
+ 		uci.set('luci', 'channel_analysis_r', 'scan_dedicated_5G_network', pref_dedicated_scan);		
+		if (pref_noise_interval != GS.scan.noise_interval) {
+			GS.scan.noise_interval = pref_noise_interval;
+			poll.remove(GS.pollFn);
+			poll.add(GS.pollFn, GS.scan.noise_interval);
+			poll.start();
+		}
+		ui.showModal("Saving...",null);
+		window.setTimeout(function() {document.body.classList.remove('modal-overlay-active')}, 800);
+		return uci.apply().then(function(r) {console.log(r)});
+	},
+	
+	handleGSTab: function() {
+		var GS = this.GetE('GSTab').settings;
+		if (!GS.ucipollFn) {
+			GS.ucipollFn = L.bind(this.handleUCIRefresh, this);
+			poll.add(GS.ucipollFn, 1);
+			poll.start();
+		}
+	},
+	
+	channel_analysis_section: function() {
+		return uci.sections('luci', 'internal').filter(function(sec) {
+			return !sec['.anonymous'] && sec['.name'] === 'channel_analysis_r';
+		});
+	},
 
 	radios : {},
 
@@ -766,6 +824,7 @@ return view.extend({
 	},
 
 	load: function() {
+		uci.load('luci');
 		return Promise.all([
 			this.loadSVG(L.resource('svg/channel_analysis_NEW2.svg')),
 			network.getWifiDevices().then(L.bind(function(data) {
@@ -791,13 +850,30 @@ return view.extend({
 		    wifiDevs = data[1],
 		    OUI_db_FS = data[2];
 
-		var v = E('div', {}, E('div'));
-
+		var v = E('div', {}, E('div')),
+			settings_tab,
+			settings = {
+				pollFn: null,
+				ucipollFn: null,
+				scan: {
+					dedicated5Gnetwork: false,
+					noise_interval: 30 }
+			};
+			
+		if (this.channel_analysis_section()) {
+			settings.scan.dedicated5Gnetwork = ( uci.get('luci', 'channel_analysis_r', 'scan_dedicated_5G_network') === '1' ? true : false );
+			settings.scan.noise_interval = parseInt(uci.get('luci', 'channel_analysis_r', 'scan_noise_interval'));
+		} else {
+			uci.add('luci', 'internal', 'channel_analysis_r');
+ 			uci.set('luci', 'channel_analysis_r', 'scan_noise_interval', '%d'.format(settings.scan.noise_interval));
+ 			uci.set('luci', 'channel_analysis_r', 'scan_dedicated_5G_network', ( settings.scan.dedicated5Gnetwork  ? '1' : '0') );
+		}
+		
 		for (var ifname in wifiDevs) {
 			var freq_tbl = {
-				['2.4GHz'] : { },
-				['5GHz'] : { },
-			};
+					['2.4GHz'] : { },
+					['5GHz'] : { },
+				};
 
 			/* Split FrequencyList in Bands */
 			wifiDevs[ifname].freq.forEach(function(freq) {
@@ -813,26 +889,27 @@ return view.extend({
 					continue;
 
 				var csvg = svg.cloneNode(true),
-				table = E('table', { 'class': 'table' }, [
-					E('tr', { 'class': 'tr table-titles' }, [
-						E('th', { 'class': 'th col-2 middle center' }, _('Signal')),
-						E('th', { 'class': 'th col-4 middle left' }, _('SSID')),
-						E('th', { 'class': 'th col-1 middle center hide-xs' }, _('Channel')),
-						E('th', { 'class': 'th col-2 middle center' }, _('Channel Width')),
-						E('th', { 'class': 'th col-2 middle left hide-xs' }, _('Mode')),
-						E('th', { 'class': 'th col-4 middle center hide-xs', 'id': 'BSSID'+freq }, _('BSSID'))
-					])
-				]),
-				tab = E('div', { 'data-tab': ifname+freq, 'data-tab-title': ifname+' ('+freq+')', 'frequency': freq },
-						[E('br'),csvg,E('br'),table,E('br'),E('div', { 'class': 'tr.cbi-section-table-descr', 'style': 'font-style:italic'},
-							_('Cell in italics denotes Multi-SSID broadcasts.'))]),
-				graph_data = {
-					graph: csvg,
-					offset_tbl: {},
-					col_width: 0,
-					tab: tab,
-					sigInc: 0
-				};
+					svg_objs = csvg.firstElementChild,
+					table = E('table', { 'class': 'table' }, [
+						E('tr', { 'class': 'tr table-titles' }, [
+							E('th', { 'class': 'th col-2 middle center' }, _('Signal')),
+							E('th', { 'class': 'th col-4 middle left' }, _('SSID')),
+							E('th', { 'class': 'th col-1 middle center hide-xs' }, _('Channel')),
+							E('th', { 'class': 'th col-2 middle center' }, _('Channel Width')),
+							E('th', { 'class': 'th col-2 middle left hide-xs' }, _('Mode')),
+							E('th', { 'class': 'th col-4 middle center hide-xs', 'id': 'BSSID'+freq }, _('BSSID'))
+						])
+					]),
+					tab = E('div', { 'data-tab': ifname+freq, 'data-tab-title': ifname+' ('+freq+')', 'frequency': freq },
+							[E('br'),csvg,E('br'),table,E('br'),E('div', { 'class': 'tr.cbi-section-table-descr', 'style': 'font-style:italic'},
+								_('Cell in italics denotes Multi-SSID broadcasts.'))]),
+					graph_data = {
+						graph: csvg,
+						offset_tbl: {},
+						col_width: 0,
+						tab: tab,
+						sigInc: 0
+					};
 
 				this.radios[ifname+freq] = {
 					dev: wifiDevs[ifname].dev,
@@ -844,8 +921,9 @@ return view.extend({
 					textCache: {}
 				};
 				
+				tab.addEventListener('cbi-tab-active', L.bind(this.suspendUCIpoll, this));
+				
 				//super manual traverse to get this minimal text up before setting up labels & waiting on scan results
-				var svg_objs = csvg.firstElementChild;
 				svg_objs=svg_objs.firstElementChild;  //<svg> graph
 				svg_objs=svg_objs.firstElementChild;  //<defs> element
 				svg_objs.id="Defs_"+freq;
@@ -875,27 +953,53 @@ return view.extend({
 						
 						this.pollFn = L.bind(this.callNetworkNoise, this, (ifname+freq), wnetIfname);
 						
-						poll.add(this.pollFn, 30);
+						settings.pollFn = this.pollFn;
+						poll.add(this.pollFn, settings.scan.noise_interval);
 						poll.start();
 					}
 				}
 			}
 		}
-		v.firstElementChild.appendChild( E('div', { 'data-tab': 'settings', 'data-tab-title': _('General settings') }, [
+		settings_tab = E('div', { 'data-tab': 'settings', 'data-tab-title': _('General settings'), 'id': 'GSTab' }, [
+			E('h3', {},  _('OUI Vendor Database')),
+			E('p', {},  _('The OUI db matches BSSID first 3 octets (XX:XX:XX) to a vendor. BSSID table column alternates with "Vendors"')),
+			E('h3', {},  _('OUI db Status')),
+			E('p', {'id': 'OUI_info'}, ( typeof OUI_db_FS !== "undefined" ? this.infoOUIdb(OUI_db_FS) : _("NOT PRESENT<br>") )),
+			E('h3', {},  _('OUI Actions')),
 			E('button', { 'class': 'cbi-button cbi-button-action', 'id': 'OUI_Get_button', 'click': L.bind(this.handleDownloadOUIdb, this),
 					'disabled': Object.keys(OUIdb).length ? true : null }, _('Download OUI db.')),
 			E('button', { 'class': 'cbi-button cbi-button-action', 'id': 'OUI_Upd_button', 'click': L.bind(this.handleUpdateOUIdb, this),
 					'disabled': Object.keys(OUIdb).length ? null : true }, _('Update OUI db.')),
 			E('button', { 'class': 'cbi-button cbi-button-action', 'id': 'OUI_Del_button', 'click': L.bind(this.handleDeleteOUIdb, this),
 					'disabled': Object.keys(OUIdb).length  ? null : true}, _('Delete OUI db.')),
-			E('p', {'id': 'OUI_info'}, ( typeof OUI_db_FS !== "undefined" ? _('<br>OUI db is '+OUI_db_FS.size.toLocaleString()+
-					" bytes for "+Object.keys(OUIdb).length.toLocaleString()+" records. Downloaded: "+ new Date(OUI_db_FS.mtime*1000) ) : _("") )),
-			E('hr')
-			//checkbox for dedicated scan0 for 5GHz(save as uci setting?)
-			//noise scan interval (save as uci setting?)
-		]) );
-
+			E('hr'),
+			E('h3', {},  _('Scan Behavior')),
+			E('p', {},  _('Use dedicated scan0 network for 5GHz.')),
+			E('div', {}, [
+				E('label', { 'class': 'cbi-checkbox',}, [
+					E('input', { 'id': 'dedicated-scan-wnet', 'type': 'checkbox', 'checked': settings.scan.dedicated5Gnetwork}), /* uci setting */
+					E('label', { 'for': 'overwrite-cb' }), ' ',_('Use dedicated scan0 wireless network'),
+					E('br'),
+					E('span', { 'class': 'cbi-value-description'}, _('Existing wireless network will be taken down for scan & restored when "Cancel Scan" button is clicked.'))
+				])
+			]),
+			E('br'),
+			E('h3', {},  _('Noise Scan Behavior')),
+			E('p', {},  _('Set interval for noise scan in active network')),
+			E('input', { 'class': 'cbi-input-text', 'id': 'noise-interval', 'text': 'text', 'value': settings.scan.noise_interval}), /*uci setting*/
+			E('span', { 'class': 'cbi-value-description'}, _('(in seconds)')),
+			E('br'),
+			E('br'),
+			E('div', { 'class': 'cbi-page-actions' }, [
+				E('button', { 'class': 'cbi-button cbi-button-save', 'click': L.bind(this.handleGS_Save, this)}, [ _('Save') ])
+			])
+		]);
+		
+		v.firstElementChild.appendChild( settings_tab );
 		ui.tabs.initTabGroup(v.firstElementChild.childNodes);
+		ui.changes.init;
+		settings_tab.settings = settings;
+		settings_tab.addEventListener('cbi-tab-active', L.bind(this.handleGSTab, this));
 
 		this.pollFn = L.bind(this.handleScanRefresh, this);
 
