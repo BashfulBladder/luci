@@ -66,28 +66,21 @@
 	},
 
 	"luci-mod-status-channel_analysis_remix": {
-		"description": "Grant access to the system route status",
-		"write": {
-			"cgi-io": [ "exec" ],
-			"file": {
-				"/tmp/oui.sh": ["write"],
-				"/tmp/oui.txt": ["write"],
-				"/etc/OUI.json": ["write"]
-			}
-		},
+		"description": "Grant access to wifi stats & making OUI db",
 		"read": {
-			"cgi-io": [ "download", "read", "exec" ],
+			"cgi-io": [ "download", "read" ],
+			"file": {
+				"/etc/OUI.json": ["read", "download"]
+			},
 			"ubus": {
 				"iwinfo": [ "info", "freqlist", "survey" ],
+				"luci.channel_analysis_remix": [ "gen_OUI_db", "dedicated_5GHz_wif_up", "dedicated_5GHz_wif_down" ],
 				"file": [ "stat", "read" ]
 			},
-			"file": {
-				"/usr/bin/wget": [ "exec" ],
-				"/usr/bin/awk": [ "exec" ],
-				"/tmp/oui.sh": [ "exec" ],
-				"/tmp/oui.txt": ["read"],
-				"/etc/OUI.json": ["read", "download"]
-			}
+			"uci": [ "channel_analysis_r" ]
+		},
+		"write": {
+			"uci": [ "channel_analysis_r" ]
 		}
 	},
 

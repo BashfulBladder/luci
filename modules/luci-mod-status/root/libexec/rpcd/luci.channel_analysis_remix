@@ -1,0 +1,66 @@
+#!/bin/sh
+
+. /usr/share/libubox/jshn.sh
+
+# /usr/libexec/rpcd/luci.channel_analysis_remix
+
+gen_OUI_db() {
+	local OUI_URL='http://standards-oui.ieee.org/oui/oui.txt'
+	local OUI_json='/etc/OUI.json' OUI_temp='/tmp/oui.txt'
+	local tmpfs_free=$(df /tmp | awk '/tmpfs/ {print $4}')
+	local OUI_fstat
+	
+	if [ `command -v awk` ] && [ `command -v wget` ]; then
+		if [ $(expr $tmpfs_free \> 6000) ]; then
+			/usr/bin/wget -q -O $OUI_temp $OUI_URL
+			
+			awk '{vdr=""; if(length($1) == 6 && !/^\t/) {gsub(/     \(base 16\)/,"");gsub(/\//,"\\\/"); for(i=2;i<=NF;++i) {if(i==2) {vdr= vdr $i}else{vdr= vdr " " $i}}; gsub("\r","",vdr); printf("%s\"%s\":\"%s\"",cnt++==0?"{ ":",",$1,vdr)}} END {printf(" }")}' $OUI_temp > $OUI_json
+			
+			rm -rf $OUI_temp
+			OUI_fstat=`du $OUI_json | awk '{print$1}'`
+			
+			#was 1016 (*1024) Sep01,2021
+			if [ `expr $OUI_fstat \> 900` ]; then
+				echo 1
+			else
+				echo 000
+			fi
+		else
+			echo 00
+		fi
+	else
+		echo 0
+	fi
+}
+
+dedicated_5GHz_wif_up() {
+	echo 1
+}
+
+dedicated_5GHz_wif_down() {
+	echo 1
+}
+
+case "$1" in
+	list)
+		json_init
+		json_add_object "gen_OUI_db"
+		json_close_object
+		json_add_object "dedicated_5GHz_wif_up"
+		json_close_object
+		json_add_object "dedicated_5GHz_wif_down"
+		json_close_object
+		json_dump
+		json_cleanup
+		;;
+	call)
+		case "$2" in
+			gen_OUI_db)
+				gen_OUI_db;;
+			dedicated_5GHz_wif_up)
+				dedicated_5GHz_wif_up;;
+			dedicated_5GHz_wif_down)
+				dedicated_5GHz_wif_down;;
+		esac
+	;;
+esac

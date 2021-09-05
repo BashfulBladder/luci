@@ -12,15 +12,12 @@
 /* ***************************************************** */
 //	TODO
 //
-//	pare luci-mod-status.json ACL list
-//  catch potential issues in OUIdb generation
 //  actually implement dedicated_5G_network (not just setting the pref)
 //		(my R7800 either shows localhost & is client-available OR does a proper scan & is client-unavailable)
 //	each radioX device should get a "Start Active Scanning..." & "Disable Active Scanning" buttons
 //		(now that I know to avoid ui.createHandlerFn which was adding a class 'spinning' & button became unreachable in that Promise)
 //	tiers [] in create_channel_graph is going to be a problem when there are frequent gaps (like China)
 //	maybe disable GS prefs Save button if no changes
-// after saving change that indicator to 0 changes (cuz the 1 second poll delay)
 /* ***************************************************** */
 
 var OUIdb = {};
@@ -47,6 +44,24 @@ return view.extend({
 		expect: { results: [] }
 	}),
 	
+	callGenOUIdb: rpc.declare({
+		object: 'luci.channel_analysis_remix',
+		method: 'gen_OUI_db',
+		expect: { result: 1 }
+	}),
+	
+	callDed5GUp: rpc.declare({
+		object: 'luci.channel_analysis_remix',
+		method: 'dedicated_5GHz_wif_up',
+		expect: {  }
+	}),
+	
+	callDed5GDown: rpc.declare({
+		object: 'luci.channel_analysis_remix',
+		method: 'dedicated_5GHz_wif_down',
+		expect: {  }
+	}),
+	
 	GetE: function(ID) {return document.getElementById(ID)},
  	 	
  	genOUIvar: function(throw_err) {
@@ -64,55 +79,24 @@ return view.extend({
 		});
  	},
  	
- 	//couldn't figure out redirects with fs.exec & fs_exec_direct
- 	//traditional "awk '{print $1}' in.txt > out.txt" & "echo 'hi' > /tmp/out.txt" don't work 
- 	//so instead of packaging a separate shell script, build one at runtime instead
- 	processOUI: function() {
-		var awk_scr="#!/bin/sh"+"\n";
-		
-		awk_scr+="awk" + " ";
-		awk_scr+='\'vdr=""; {if(length($1) == 6 && !/^\\t/) {gsub(/     \\(base 16\\)/,"");gsub(/\\//,"\\\\\\/"); for(i=2;i<=NF;++i) {if(i==2) {vdr= vdr \$i}else{vdr= vdr " " \$i}}; gsub("\\r","",vdr); printf("%s\\"%s\\":\\"%s\\"",cnt++==0?"{ ":",",$1,vdr)}} END {printf(" }")}\'' + ' ';		
-		
-		awk_scr+="/tmp/oui.txt > /etc/OUI.json"+"\n";
-		
-		return fs.write("/tmp/oui.sh", awk_scr, 511) /* 0777 */
-			.then(function(response) {
-				if (response)
-					throw new Error(response.stdout);
-				fs.exec("/tmp/oui.sh").then(function(response) {
-					if (response.code == 0) {
-						this.genOUIvar(true);
-					} else {
-						throw new Error(response.stdout);
-					}
-					fs.remove("/tmp/oui.sh").then(function(response) {
-						if (response !== 0)
-							throw new Error(response);
-					})
-					fs.remove('/tmp/oui.txt')
-			}.bind(this));
-		}.bind(this));
-	},
- 	
- 	wgetOUI: function() {
-		return fs.exec('/usr/bin/wget', ['http://standards-oui.ieee.org/oui/oui.txt', '-O', '/tmp/oui.txt']).then(function(response) {
-			if (!response.ok)
-				throw new Error(response.stdout);
-
-			this.processOUI();
-		});
-	},
-	
 	infoOUIdb: function(OUI_db_FS) {
 		return 'PRESENT @ /etc/OUI.json<br>OUI db is '+OUI_db_FS.size.toLocaleString()+
 					" bytes for "+Object.keys(OUIdb).length.toLocaleString()+" records. Downloaded: "+ new Date(OUI_db_FS.mtime*1000);
 	},
 	
 	handleUpdateOUIdb: function() {
-		var OUI_db_FS = this.wgetOUI(); //not sure this will return anything (deeply nested return vals)
-		console.log(OUI_db_FS);
-		this.GetE('OUI_Upd_button').setAttribute('disabled',true);
-		this.GetE('OUI_info').textContent = this.infoOUIdb(OUI_db_FS);
+	 	ui.showModal("Updating...",null);
+		this.callGenOUIdb().then(function(resp) {
+			document.body.classList.remove('modal-overlay-active');
+			if (resp == '1') {
+				var OUI_db_FS = this.genOUIvar(true);
+				this.GetE('OUI_info').textContent = this.infoOUIdb(OUI_db_FS);
+		
+				this.GetE('OUI_Upd_button').setAttribute('disabled',true);
+			} else {
+				throw new Error("There was a problem.");
+			}
+		}.bind(this));
 	},
 
 	handleDeleteOUIdb: function() {
@@ -127,11 +111,20 @@ return view.extend({
 	},
 
  	handleDownloadOUIdb: function() {
-		this.wgetOUI();
+ 		ui.showModal("Downloading...",null);
+		this.callGenOUIdb().then(function(resp) {
+			document.body.classList.remove('modal-overlay-active');
+			if (resp == '1') {
+				var OUI_db_FS = this.genOUIvar(true);
+				this.GetE('OUI_info').textContent = this.infoOUIdb(OUI_db_FS);
 		
-		this.GetE('OUI_Upd_button').removeAttribute('disabled');
-		this.GetE('OUI_Del_button').removeAttribute('disabled');
-		this.GetE('OUI_Get_button').setAttribute('disabled',true);
+				this.GetE('OUI_Upd_button').removeAttribute('disabled');
+				this.GetE('OUI_Del_button').removeAttribute('disabled');
+				this.GetE('OUI_Get_button').setAttribute('disabled',true);
+			} else {
+				throw new Error("There was a problem.");
+			}
+		}.bind(this));
 	},
 	
 	fuzzyOUIsearch: function(bssid) {
@@ -791,7 +784,7 @@ return view.extend({
 		}
 		ui.showModal("Saving...",null);
 		window.setTimeout(function() {document.body.classList.remove('modal-overlay-active')}, 800);
-		return uci.apply().then(function(r) {console.log(r)});
+		return uci.apply().then(function(r) {ui.changes.renderChangeIndicator(0)});
 	},
 	
 	handleGSTab: function() {
