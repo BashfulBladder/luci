@@ -853,7 +853,7 @@ return view.extend({
 					noise_interval: 30 }
 			};
 			
-		if (this.channel_analysis_section()) {
+		if (this.channel_analysis_section().length) {
 			settings.scan.dedicated5Gnetwork = ( uci.get('luci', 'channel_analysis_r', 'scan_dedicated_5G_network') === '1' ? true : false );
 			settings.scan.noise_interval = parseInt(uci.get('luci', 'channel_analysis_r', 'scan_noise_interval'));
 		} else {
