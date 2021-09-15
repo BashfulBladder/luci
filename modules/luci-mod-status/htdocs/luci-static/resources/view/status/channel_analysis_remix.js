@@ -18,6 +18,7 @@
 //		(now that I know to avoid ui.createHandlerFn which was adding a class 'spinning' & button became unreachable in that Promise)
 //	tiers [] in create_channel_graph is going to be a problem when there are frequent gaps (like China)
 //	maybe disable GS prefs Save button if no changes
+//  poll in handleGS_Save
 /* ***************************************************** */
 
 var OUIdb = {};
@@ -752,10 +753,9 @@ return view.extend({
 	
 	handleRadioScanOn: function(ifname, freq) {
 		var GS = this.GetE('GSTab').settings;
-		cbi_update_table(this.radios[ifname+freq].table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
-		//this.GetE('infoid'+freq).textContent
 		this.GetE('Start'+freq).disabled = true;
 		this.GetE('Stop'+freq).disabled = false;
+		cbi_update_table(this.radios[ifname+freq].table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
 		
 		if (this.radios[ifname+freq].pollFunctions.noise != null) {
 			poll.add(this.radios[ifname+freq].pollFunctions.noise, GS.scan.noise_interval);
@@ -768,13 +768,14 @@ return view.extend({
 	handleRadioScanOff: function(ifname, freq) {
 		this.GetE('Start'+freq).disabled = false;
 		this.GetE('Stop'+freq).disabled = true;
+		this.GetE('infoid'+freq).textContent = "Scanning paused.";
+		
 		if (this.radios[ifname+freq].pollFunctions.noise != null) {
 			poll.remove(this.radios[ifname+freq].pollFunctions.noise);
 			poll.start();
 		}
 		poll.remove(this.radios[ifname+freq].pollFunctions.survey);
 		poll.start();
-		this.GetE('infoid'+freq).textContent = "Scanning paused."
 	},
 	
 	handleUCIRefresh: function() {
@@ -808,9 +809,6 @@ return view.extend({
  		uci.set('luci', 'channel_analysis_r', 'scan_dedicated_5G_network', pref_dedicated_scan);		
 		if (pref_noise_interval != GS.scan.noise_interval) {
 			GS.scan.noise_interval = pref_noise_interval;
-			//poll.remove(GS.pollFn);
-			//poll.add(GS.pollFn, GS.scan.noise_interval);
-			//poll.start();
 			for (var rad in this.radios) {
 				if (this.radios[rad].pollFunctions.noise) {
 					if (poll.remove( this.radios[rad].pollFunctions.noise )) {
@@ -884,7 +882,6 @@ return view.extend({
 		var v = E('div', {}, E('div')),
 			settings_tab,
 			settings = {
-				//pollFn: null,
 				ucipollFn: null,
 				scan: {
 					dedicated5Gnetwork: false,
@@ -981,8 +978,6 @@ return view.extend({
 				svg_objs=svg_objs.firstElementChild; //<g> group element that should have a unique ID
 				svg_objs.id=svg_objs.id+freq;
 
-				//cbi_update_table(table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
-
 				v.firstElementChild.appendChild(tab);
 
 				requestAnimationFrame(L.bind(this.create_channel_graph, this, graph_data, freq));
@@ -993,14 +988,7 @@ return view.extend({
 						var wnetIfname = wifiDevs[ifname].dev._ubusdata.dev.interfaces[wif].ifname;
 						
 						if (typeof wnetIfname !== "undefined") {
-							//this.pollFn = L.bind(this.callNetworkNoise, this, (ifname+freq), wnetIfname);
-						
-							//settings.pollFn = this.pollFn;
-							//poll.add(this.pollFn, settings.scan.noise_interval);
-							//poll.start();
 							this.radios[ifname+freq].pollFunctions.noise = L.bind(this.callNetworkNoise, this, (ifname+freq), wnetIfname);
-							//poll.add(this.radios[ifname+freq].pollFunctions.noise, settings.scan.noise_interval);
-							//poll.start();
 						}
 					}
 				}
@@ -1047,11 +1035,6 @@ return view.extend({
 		ui.changes.init;
 		settings_tab.settings = settings;
 		settings_tab.addEventListener('cbi-tab-active', L.bind(this.handleGSTab, this));
-
-		//this.pollFn = L.bind(this.handleScanRefresh, this);
-
-		//poll.add(this.pollFn);
-		//poll.start();
 
 		return v;
 	},
