@@ -34,11 +34,13 @@ gen_OUI_db() {
 }
 
 dedicated_5GHz_wif_up() {
-	echo 1
+	local network="$1"
+	/sbin/ifconfig "$network" down
 }
 
 dedicated_5GHz_wif_down() {
-	echo 1
+	/sbin/wifi up
+	/usr/bin/killall -HUP hostapd
 }
 
 case "$1" in
@@ -47,6 +49,7 @@ case "$1" in
 		json_add_object "gen_OUI_db"
 		json_close_object
 		json_add_object "dedicated_5GHz_wif_up"
+			json_add_string 'network' 'network'
 		json_close_object
 		json_add_object "dedicated_5GHz_wif_down"
 		json_close_object
@@ -56,11 +59,18 @@ case "$1" in
 	call)
 		case "$2" in
 			gen_OUI_db)
-				gen_OUI_db;;
+				gen_OUI_db
+				;;
 			dedicated_5GHz_wif_up)
-				dedicated_5GHz_wif_up;;
+				read -r input
+				json_load "$input"
+				json_get_var name 'network'
+				json_cleanup
+				dedicated_5GHz_wif_up "$network"
+				;;
 			dedicated_5GHz_wif_down)
-				dedicated_5GHz_wif_down;;
+				dedicated_5GHz_wif_down
+				;;
 		esac
 	;;
 esac

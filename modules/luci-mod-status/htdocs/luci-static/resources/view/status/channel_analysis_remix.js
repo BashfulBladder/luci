@@ -14,8 +14,6 @@
 //
 //  actually implement dedicated_5G_network (not just setting the pref)
 //		(my R7800 either shows localhost & is client-available OR does a proper scan & is client-unavailable)
-//	each radioX device should get a "Start Active Scanning..." & "Disable Active Scanning" buttons
-//		(now that I know to avoid ui.createHandlerFn which was adding a class 'spinning' & button became unreachable in that Promise)
 //	tiers [] in create_channel_graph is going to be a problem when there are frequent gaps (like China)
 //	maybe disable GS prefs Save button if no changes
 //  poll in handleGS_Save
@@ -54,13 +52,12 @@ return view.extend({
 	callDed5GUp: rpc.declare({
 		object: 'luci.channel_analysis_remix',
 		method: 'dedicated_5GHz_wif_up',
-		expect: {  }
+		params: ['network']
 	}),
 	
 	callDed5GDown: rpc.declare({
 		object: 'luci.channel_analysis_remix',
 		method: 'dedicated_5GHz_wif_down',
-		expect: {  }
 	}),
 	
 	GetE: function(ID) {return document.getElementById(ID)},
