@@ -1,6 +1,7 @@
 dist/
 node_modules/
 /host
+.DS_Store
 *.o
 *.so
 *.swp

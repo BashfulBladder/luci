@@ -1862,6 +1862,8 @@
 		 * The DOM `Node` instance to empty of children.
 		 */
 		empty: function(node) {
+			if (node == null)
+				return;
 			var child = node.firstElementChild;
 			while (child) {
 				child.remove();
