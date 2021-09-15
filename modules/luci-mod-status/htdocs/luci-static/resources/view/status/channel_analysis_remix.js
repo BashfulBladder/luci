@@ -663,10 +663,13 @@ return view.extend({
 			this.spreadTextLabels();
 			this.switch_BSSID_OUI();
 			cbi_update_table(table, rows);
+			this.GetE('infoid'+chan_analysis.tab.getAttribute('frequency')).textContent = results.length+" Cells";
 		}, this))
 	},
 	
 	plotNoise: function(device, freq) {
+		if (typeof freq === "undefined")
+			return;
 		var chanArr = [], noiseArr = [],
 			chanInc, xInc,
 			nX, nY, prevX, prevY, 
@@ -747,6 +750,33 @@ return view.extend({
 		]);
 	},
 	
+	handleRadioScanOn: function(ifname, freq) {
+		var GS = this.GetE('GSTab').settings;
+		cbi_update_table(this.radios[ifname+freq].table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
+		//this.GetE('infoid'+freq).textContent
+		this.GetE('Start'+freq).disabled = true;
+		this.GetE('Stop'+freq).disabled = false;
+		
+		if (this.radios[ifname+freq].pollFunctions.noise != null) {
+			poll.add(this.radios[ifname+freq].pollFunctions.noise, GS.scan.noise_interval);
+			poll.start();
+		}
+		poll.add(this.radios[ifname+freq].pollFunctions.survey);
+		poll.start();
+	},
+	
+	handleRadioScanOff: function(ifname, freq) {
+		this.GetE('Start'+freq).disabled = false;
+		this.GetE('Stop'+freq).disabled = true;
+		if (this.radios[ifname+freq].pollFunctions.noise != null) {
+			poll.remove(this.radios[ifname+freq].pollFunctions.noise);
+			poll.start();
+		}
+		poll.remove(this.radios[ifname+freq].pollFunctions.survey);
+		poll.start();
+		this.GetE('infoid'+freq).textContent = "Scanning paused."
+	},
+	
 	handleUCIRefresh: function() {
 		var pref_noise_interval = parseInt(this.GetE('noise-interval').value),
 			pref_dedicated_scan = ( this.GetE('dedicated-scan-wnet').checked ? '1' : '0' );
@@ -778,9 +808,17 @@ return view.extend({
  		uci.set('luci', 'channel_analysis_r', 'scan_dedicated_5G_network', pref_dedicated_scan);		
 		if (pref_noise_interval != GS.scan.noise_interval) {
 			GS.scan.noise_interval = pref_noise_interval;
-			poll.remove(GS.pollFn);
-			poll.add(GS.pollFn, GS.scan.noise_interval);
-			poll.start();
+			//poll.remove(GS.pollFn);
+			//poll.add(GS.pollFn, GS.scan.noise_interval);
+			//poll.start();
+			for (var rad in this.radios) {
+				if (this.radios[rad].pollFunctions.noise) {
+					if (poll.remove( this.radios[rad].pollFunctions.noise )) {
+						poll.add(this.radios[rad].pollFunctions.noise, GS.scan.noise_interval);
+						poll.start();
+					}
+				}
+			}
 		}
 		ui.showModal("Saving...",null);
 		window.setTimeout(function() {document.body.classList.remove('modal-overlay-active')}, 800);
@@ -846,7 +884,7 @@ return view.extend({
 		var v = E('div', {}, E('div')),
 			settings_tab,
 			settings = {
-				pollFn: null,
+				//pollFn: null,
 				ucipollFn: null,
 				scan: {
 					dedicated5Gnetwork: false,
@@ -893,9 +931,15 @@ return view.extend({
 							E('th', { 'class': 'th col-4 middle center hide-xs', 'id': 'BSSID'+freq }, _('BSSID'))
 						])
 					]),
+					info_controls = E('div', {'style': 'justify-content:space-between'},
+						[ E('button', { 'class': 'cbi-button cbi-button-action', 'style': 'float:left', 'id': 'Start'+freq,
+							'click': L.bind(this.handleRadioScanOn, this, ifname, freq)}, _('Start Scanning')),
+						  E('button', { 'class': 'cbi-button cbi-button-action', 'style': 'float:right', 'id': 'Stop'+freq,
+						  	'click': L.bind(this.handleRadioScanOff, this, ifname, freq), 'disabled': true}, _('Stop Scanning')),
+						  E('div', {'id': 'infoid'+freq, 'style': 'text-align:center'}) ]),
 					tab = E('div', { 'data-tab': ifname+freq, 'data-tab-title': ifname+' ('+freq+')', 'frequency': freq },
-							[E('br'),csvg,E('br'),table,E('br'),E('div', { 'class': 'tr.cbi-section-table-descr', 'style': 'font-style:italic'},
-								_('Cell in italics denotes Multi-SSID broadcasts.'))]),
+							[E('br'),csvg,info_controls,E('br'),table,E('br'),E('div', { 'class': 'tr.cbi-section-table-descr',
+								 'style': 'font-style:italic'}, _('Cell in italics denotes Multi-SSID broadcasts.'))]),
 					graph_data = {
 						graph: csvg,
 						offset_tbl: {},
@@ -911,7 +955,11 @@ return view.extend({
 					tableTick: 0,
 					freqData: freq_tbl,
 					scanCache: {},
-					textCache: {}
+					textCache: {},
+					pollFunctions: {
+						survey: null, /*NOTE: this function is freq-agnostic; active_tab determines which freq gets radioDev.getScanList() */
+						noise: null
+					}
 				};
 				
 				tab.addEventListener('cbi-tab-active', L.bind(this.suspendUCIpoll, this));
@@ -933,7 +981,7 @@ return view.extend({
 				svg_objs=svg_objs.firstElementChild; //<g> group element that should have a unique ID
 				svg_objs.id=svg_objs.id+freq;
 
-				cbi_update_table(table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
+				//cbi_update_table(table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
 
 				v.firstElementChild.appendChild(tab);
 
@@ -944,13 +992,19 @@ return view.extend({
 						//this ifname (network) != the tab ifname (device)
 						var wnetIfname = wifiDevs[ifname].dev._ubusdata.dev.interfaces[wif].ifname;
 						
-						this.pollFn = L.bind(this.callNetworkNoise, this, (ifname+freq), wnetIfname);
+						if (typeof wnetIfname !== "undefined") {
+							//this.pollFn = L.bind(this.callNetworkNoise, this, (ifname+freq), wnetIfname);
 						
-						settings.pollFn = this.pollFn;
-						poll.add(this.pollFn, settings.scan.noise_interval);
-						poll.start();
+							//settings.pollFn = this.pollFn;
+							//poll.add(this.pollFn, settings.scan.noise_interval);
+							//poll.start();
+							this.radios[ifname+freq].pollFunctions.noise = L.bind(this.callNetworkNoise, this, (ifname+freq), wnetIfname);
+							//poll.add(this.radios[ifname+freq].pollFunctions.noise, settings.scan.noise_interval);
+							//poll.start();
+						}
 					}
 				}
+				this.radios[ifname+freq].pollFunctions.survey = L.bind(this.handleScanRefresh, this);
 			}
 		}
 		settings_tab = E('div', { 'data-tab': 'settings', 'data-tab-title': _('General settings'), 'id': 'GSTab' }, [
@@ -994,10 +1048,10 @@ return view.extend({
 		settings_tab.settings = settings;
 		settings_tab.addEventListener('cbi-tab-active', L.bind(this.handleGSTab, this));
 
-		this.pollFn = L.bind(this.handleScanRefresh, this);
+		//this.pollFn = L.bind(this.handleScanRefresh, this);
 
-		poll.add(this.pollFn);
-		poll.start();
+		//poll.add(this.pollFn);
+		//poll.start();
 
 		return v;
 	},
