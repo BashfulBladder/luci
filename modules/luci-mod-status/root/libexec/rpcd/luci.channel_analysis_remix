@@ -39,7 +39,7 @@ dedicated_5GHz_wif_up() {
 }
 
 dedicated_5GHz_wif_down() {
-	/sbin/wifi up
+	/sbin/wifi up &>/dev/null
 	/usr/bin/killall -HUP hostapd
 }
 
@@ -60,17 +60,17 @@ case "$1" in
 		case "$2" in
 			gen_OUI_db)
 				gen_OUI_db
-				;;
+			;;
 			dedicated_5GHz_wif_up)
 				read -r input
 				json_load "$input"
-				json_get_var name 'network'
+				json_get_var network 'network'
 				json_cleanup
 				dedicated_5GHz_wif_up "$network"
-				;;
+			;;
 			dedicated_5GHz_wif_down)
 				dedicated_5GHz_wif_down
-				;;
+			;;
 		esac
 	;;
 esac
