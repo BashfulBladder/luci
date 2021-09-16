@@ -12,8 +12,6 @@
 /* ***************************************************** */
 //	TODO
 //
-//  actually implement dedicated_5G_network (not just setting the pref)
-//		(my R7800 either shows localhost & is client-available OR does a proper scan & is client-unavailable)
 //	tiers [] in create_channel_graph is going to be a problem when there are frequent gaps (like China)
 //	maybe disable GS prefs Save button if no changes
 //  poll in handleGS_Save
@@ -748,11 +746,16 @@ return view.extend({
 		]);
 	},
 	
-	handleRadioScanOn: function(ifname, freq) {
+	handleRadioScanOn: async function(ifname, freq) {
 		var GS = this.GetE('GSTab').settings;
+		
 		this.GetE('Start'+freq).disabled = true;
 		this.GetE('Stop'+freq).disabled = false;
 		cbi_update_table(this.radios[ifname+freq].table, [], E('em', { class: 'spinning' }, _('Starting wireless scan...')));
+		
+		if (freq === '5GHz' && GS.scan.dedicated5Gnetwork) {
+			await this.callDed5GUp( this.radios[ifname+freq].dev._ubusdata.dev.interfaces[0].ifname );
+		}
 		
 		if (this.radios[ifname+freq].pollFunctions.noise != null) {
 			poll.add(this.radios[ifname+freq].pollFunctions.noise, GS.scan.noise_interval);
@@ -762,10 +765,16 @@ return view.extend({
 		poll.start();
 	},
 	
-	handleRadioScanOff: function(ifname, freq) {
+	handleRadioScanOff: async function(ifname, freq) {
+		var GS = this.GetE('GSTab').settings;
+		
 		this.GetE('Start'+freq).disabled = false;
 		this.GetE('Stop'+freq).disabled = true;
 		this.GetE('infoid'+freq).textContent = "Scanning paused.";
+		
+		if (freq === '5GHz' && GS.scan.dedicated5Gnetwork) {
+			await this.callDed5GDown();
+		}
 		
 		if (this.radios[ifname+freq].pollFunctions.noise != null) {
 			poll.remove(this.radios[ifname+freq].pollFunctions.noise);
